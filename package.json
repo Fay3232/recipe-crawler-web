@@ -1,0 +1,21 @@
+{
+  "name": "recipe-crawler-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-ready local recipe crawler and recipe finder web app.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "recipe",
+    "crawler",
+    "taiwan",
+    "food"
+  ],
+  "license": "UNLICENSED"
+}

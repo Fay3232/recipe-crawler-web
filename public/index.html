@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>料理快搜</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-main">料理<span>快搜</span></span>
+          <span class="brand-sub">MD 網址清單、食譜比對、快速收藏</span>
+        </div>
+        <div class="top-actions">
+          <button class="button primary" id="crawlButton" type="button" aria-label="內容更新">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v3M5.6 5.6l2.1 2.1M2 12h3m1 6 2-2m8 0 2 2m1-6h3m-5.7-4.3 2.1-2.1M8 9h8a3 3 0 0 1 3 3v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5v-3a3 3 0 0 1 3-3Zm0 4h.01M16 13h.01"/></svg>
+            內容更新
+          </button>
+          <button class="button ghost" id="importToggle" type="button" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10M8 3v6m8 6v6"/></svg>
+            網址清單
+          </button>
+          <button class="icon-button" id="helpButton" type="button" aria-label="使用說明">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 9a2.5 2.5 0 1 1 4.3 1.8c-.9.8-1.8 1.3-1.8 2.7M12 17h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="import-panel crawl-control" id="importPanel" hidden>
+        <label>MD 網址清單</label>
+        <div class="crawl-control-body">
+          <strong id="crawlPanelStatus">讀取內容狀態中...</strong>
+          <span id="crawlPanelMeta">系統會讀取 recipe-urls.md 裡的網址，按內容更新後才重新擷取。</span>
+          <div class="provider-status" id="sourceStatus"></div>
+          <div class="crawl-topic-list" id="crawlTopics"></div>
+        </div>
+        <div class="crawl-control-actions">
+          <button class="button ghost" id="refreshCrawlStatus" type="button">重新整理</button>
+          <button class="button primary" id="bulkButton" type="button">立即更新</button>
+        </div>
+      </section>
+
+      <main class="workspace">
+        <aside class="filters" aria-label="搜尋與篩選">
+          <form class="search-box" id="searchForm">
+            <label for="queryInput">搜尋</label>
+            <div class="search-input">
+              <input id="queryInput" name="q" type="search" placeholder="搜尋已爬取的料理或材料" autocomplete="off" />
+              <button type="submit" aria-label="搜尋">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"/></svg>
+              </button>
+            </div>
+            <p class="hint">例：番茄炒蛋、滷肉飯、雞肉、甜點</p>
+          </form>
+
+          <div class="filter-block">
+            <label for="typeSelect">料理類型</label>
+            <select id="typeSelect">
+              <option value="全部">全部類型</option>
+              <option value="家常菜">家常菜</option>
+              <option value="下飯菜">下飯菜</option>
+              <option value="湯類">湯類</option>
+              <option value="麵食">麵食</option>
+              <option value="烘焙">烘焙</option>
+              <option value="甜點">甜點</option>
+              <option value="飲品">飲品</option>
+            </select>
+          </div>
+
+          <div class="filter-block">
+            <span class="filter-title">料理分類</span>
+            <div class="chip-grid" id="categoryChips">
+              <button class="chip active" type="button" data-value="全部">全部</button>
+              <button class="chip" type="button" data-value="家常菜">家常菜</button>
+              <button class="chip" type="button" data-value="下飯菜">下飯菜</button>
+              <button class="chip" type="button" data-value="湯類">湯類</button>
+              <button class="chip" type="button" data-value="麵食">麵食</button>
+              <button class="chip" type="button" data-value="烘焙">烘焙</button>
+              <button class="chip" type="button" data-value="甜點">甜點</button>
+              <button class="chip" type="button" data-value="飲品">飲品</button>
+            </div>
+          </div>
+
+          <div class="filter-block">
+            <label for="cuisineSelect">國家 / 菜系</label>
+            <select id="cuisineSelect">
+              <option value="全部">全部菜系</option>
+              <option value="台式">台式</option>
+              <option value="日式">日式</option>
+              <option value="韓式">韓式</option>
+              <option value="義式">義式</option>
+              <option value="泰式">泰式</option>
+              <option value="中式">中式</option>
+            </select>
+          </div>
+
+          <fieldset class="filter-block">
+            <legend>烹調時間</legend>
+            <label class="check-row"><input type="checkbox" name="time" value="15" />15 分鐘內</label>
+            <label class="check-row"><input type="checkbox" name="time" value="30" checked />15-30 分鐘</label>
+            <label class="check-row"><input type="checkbox" name="time" value="60" />30-60 分鐘</label>
+            <label class="check-row"><input type="checkbox" name="time" value="long" />60 分鐘以上</label>
+          </fieldset>
+
+          <fieldset class="filter-block">
+            <legend>難易度</legend>
+            <div class="segmented" id="difficultyControl">
+              <button type="button" class="active" data-value="全部">全部</button>
+              <button type="button" data-value="簡單">簡單</button>
+              <button type="button" data-value="普通">普通</button>
+              <button type="button" data-value="困難">困難</button>
+            </div>
+          </fieldset>
+
+          <div class="filter-block">
+            <label for="servingSelect">份量</label>
+            <select id="servingSelect">
+              <option value="全部">全部份量</option>
+              <option value="1">1 人</option>
+              <option value="2">2 人</option>
+              <option value="4">4 人以上</option>
+            </select>
+          </div>
+
+          <div class="filter-block">
+            <span class="filter-title">其他篩選</span>
+            <label class="check-row"><input id="favoriteOnly" type="checkbox" />只看收藏</label>
+            <label class="check-row"><input id="structuredOnly" type="checkbox" />只看可抽取材料步驟</label>
+          </div>
+
+          <div class="filter-actions">
+            <button class="button primary full" id="applyFilters" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18L14 13v5l-4 2v-7L3 5Z"/></svg>
+              套用篩選
+            </button>
+            <button class="button ghost full" id="clearFilters" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7M21 12a9 9 0 0 1-15 6.7M18 4v4h-4M6 20v-4h4"/></svg>
+              清除條件
+            </button>
+          </div>
+        </aside>
+
+        <section class="results-pane" aria-label="搜尋結果">
+          <div class="pane-header">
+            <div>
+              <h1 id="resultTitle">找到 0 個結果</h1>
+              <p id="resultStatus">請在 recipe-urls.md 貼上食譜網址，按內容更新後即可搜尋。</p>
+            </div>
+            <div class="result-tools">
+              <select id="sortSelect" aria-label="排序">
+                <option value="quality">綜合排序</option>
+                <option value="time">時間最短</option>
+                <option value="ingredients">材料較少</option>
+                <option value="source">來源名稱</option>
+              </select>
+              <button class="icon-button" id="compactToggle" type="button" aria-label="切換密度">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="crawl-banner" id="crawlBanner" hidden>
+            <span class="spinner"></span>
+            <span id="crawlMessage">正在依 MD 網址清單更新內容...</span>
+          </div>
+          <div class="result-list" id="resultList" aria-live="polite"></div>
+        </section>
+
+        <section class="detail-pane" aria-label="食譜內容">
+          <div class="empty-detail" id="emptyDetail" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5V5a2 2 0 0 1 2-2h11a3 3 0 0 1 3 3v15H6a2 2 0 0 1-2-1.5ZM8 7h8M8 11h8M8 15h5"/></svg>
+            <p>選擇一筆結果查看材料與做法。</p>
+          </div>
+
+          <article id="recipeDetail">
+            <div class="detail-head">
+              <div>
+                <div class="title-line">
+                  <span class="star">★</span>
+                  <h2 id="detailTitle"></h2>
+                </div>
+                <div class="meta-row" id="detailMeta"></div>
+              </div>
+              <button class="button save" id="saveButton" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></svg>
+                收藏
+              </button>
+            </div>
+
+            <nav class="tabs" aria-label="食譜分頁">
+              <button class="active" type="button" data-tab="content">食譜內容</button>
+              <button type="button" data-tab="sources">來源比較</button>
+              <button type="button" data-tab="nutrition">營養估算</button>
+              <button type="button" data-tab="notes">筆記</button>
+            </nav>
+
+            <div class="tab-panel active" id="tab-content">
+              <div class="content-grid">
+                <section class="ingredients">
+                  <div class="section-title">
+                    <h3>材料</h3>
+                    <div class="stepper" aria-label="份量調整">
+                      <button id="decreaseServing" type="button">−</button>
+                      <span id="servingCount">2</span>
+                      <button id="increaseServing" type="button">＋</button>
+                      <small>份量</small>
+                    </div>
+                  </div>
+                  <ul id="ingredientList"></ul>
+                  <aside class="tip-card" id="tipCard"></aside>
+                </section>
+
+                <section class="steps">
+                  <h3>做法</h3>
+                  <ol id="stepList"></ol>
+                  <div class="micro-tip" id="microTip"></div>
+                </section>
+
+                <aside class="source-box">
+                  <h3>來源連結</h3>
+                  <div id="sourceLinks"></div>
+                  <div class="status-line">
+                    <h3>爬取狀態</h3>
+                    <ol id="crawlSteps"></ol>
+                  </div>
+                </aside>
+              </div>
+            </div>
+
+            <div class="tab-panel" id="tab-sources">
+              <div class="compare-list" id="compareList"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-nutrition">
+              <div class="nutrition-grid" id="nutritionGrid"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-notes">
+              <textarea id="noteArea" rows="8" placeholder="記下替換材料、下次調整或家人口味。"></textarea>
+              <div class="note-actions">
+                <button class="button primary" id="saveNoteButton" type="button">儲存筆記</button>
+                <span id="noteStatus"></span>
+              </div>
+            </div>
+
+            <footer class="detail-foot">
+              <span id="updatedAt"></span>
+              <div class="footer-actions">
+                <button class="button ghost" id="shareButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a3 3 0 1 0-2.8-4M6 14a3 3 0 1 0 0-4m12 10a3 3 0 1 0-2.8-4M8.7 11.2l6.6-3.4M8.7 12.8l6.6 3.4"/></svg>
+                  分享食譜
+                </button>
+                <button class="button primary" id="printButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>
+                  列印食譜
+                </button>
+              </div>
+            </footer>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: recipe-crawler-web
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 4173
+      - key: DATA_DIR
+        value: /app/data
+      - key: CONTENT_SOURCE_FILE
+        value: recipe-urls.md
+      - key: CONTENT_SOURCE_URL_LIMIT
+        value: 80
+      - key: FETCH_TIMEOUT_MS
+        value: 9000
+      - key: SEARCH_CACHE_TTL_SECONDS
+        value: 3600
+      - key: MAX_SEARCH_RESULTS
+        value: 8
+      - key: MAX_BODY_BYTES
+        value: 262144
+    disk:
+      name: recipe-crawler-data
+      mountPath: /app/data
+      sizeGB: 5
