@@ -33,6 +33,8 @@ const MAX_SEARCH_RESULTS = Number(process.env.MAX_SEARCH_RESULTS || 8);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 256 * 1024);
 const CONTENT_SOURCE_FILE = process.env.CONTENT_SOURCE_FILE || "recipe-urls.md";
 const CONTENT_SOURCE_URL_LIMIT = Number(process.env.CONTENT_SOURCE_URL_LIMIT || 80);
+const CONTENT_DISCOVERY_LIMIT_PER_SOURCE = Number(process.env.CONTENT_DISCOVERY_LIMIT_PER_SOURCE || 6);
+const CONTENT_MAX_ITEMS = Number(process.env.CONTENT_MAX_ITEMS || 80);
 const MAX_QUERY_LENGTH = 180;
 const searchCache = new Map();
 let activeCrawlPromise = null;
@@ -580,6 +582,75 @@ function absolutizeUrl(maybeUrl, baseUrl) {
   }
 }
 
+function sameSiteUrl(candidate, baseUrl) {
+  try {
+    const target = new URL(candidate);
+    const base = new URL(baseUrl);
+    const targetHost = target.hostname.replace(/^www\./, "");
+    const baseHost = base.hostname.replace(/^www\./, "");
+    return targetHost === baseHost || targetHost.endsWith(`.${baseHost}`) || baseHost.endsWith(`.${targetHost}`);
+  } catch {
+    return false;
+  }
+}
+
+function safeDecodeUriText(value = "") {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return String(value || "");
+  }
+}
+
+function scoreRecipeLink(url, text = "") {
+  let score = 0;
+  const haystack = safeDecodeUriText(`${url} ${text}`).toLowerCase();
+  if (/(食譜|料理|做法|材料|recipe|recipes|cook|cooking)/i.test(haystack)) score += 4;
+  if (/\/recipes?\//i.test(haystack)) score += 5;
+  if (/\/tw\/食譜|\/recipe[/?-]|recipe\.asp|recipe-detail/i.test(haystack)) score += 5;
+  if (/\d{3,}/.test(haystack)) score += 1;
+  if (/(login|signin|signup|member|privacy|terms|about|contact|cart|favorite|收藏|登入|註冊|會員|隱私|條款)/i.test(haystack)) score -= 8;
+  if (/(category|categories|tag|tags|search|搜尋|分類|排行榜|熱門|最新|作者|專欄)/i.test(haystack)) score -= 3;
+  if (String(text || "").trim().length >= 3) score += 1;
+  return score;
+}
+
+function discoverRecipeLinks(html, baseUrl, limit = CONTENT_DISCOVERY_LIMIT_PER_SOURCE) {
+  const links = [];
+  const regex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = regex.exec(html))) {
+    const href = decodeEntities(match[1]).trim();
+    if (!href || /^(#|mailto:|tel:|javascript:)/i.test(href)) continue;
+    const absolute = absolutizeUrl(href, baseUrl);
+    const target = safeUrl(absolute);
+    if (!target || !sameSiteUrl(target.toString(), baseUrl)) continue;
+    target.hash = "";
+    const text = stripTags(match[2]).slice(0, 120);
+    const score = scoreRecipeLink(target.toString(), text);
+    if (score <= 1) continue;
+    links.push({
+      title: text || target.pathname,
+      url: target.toString(),
+      source: target.hostname.replace(/^www\./, ""),
+      score,
+    });
+  }
+  return dedupeByUrl(links)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function dedupeByUrl(list) {
+  const seen = new Set();
+  return list.filter((item) => {
+    const key = String(item.url || "").replace(/[#?].*$/, "").toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function titleFromHtml(html) {
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   if (h1) return stripTags(h1[1]);
@@ -771,6 +842,34 @@ async function extractFromUrl(rawUrl) {
   return recipe;
 }
 
+function isLikelyRecipe(recipe) {
+  if (!recipe) return false;
+  if (recipe.extractedFrom === "json-ld" && (recipe.ingredients.length || recipe.steps.length)) return true;
+  if (recipe.ingredients.length >= 2 || recipe.steps.length >= 2) return true;
+  const text = `${recipe.title || ""} ${recipe.description || ""} ${(recipe.tags || []).join(" ")}`;
+  return /(食譜|料理|做法|材料|recipe)/i.test(text) && Number(recipe.quality || 0) >= 50;
+}
+
+async function inspectSourceUrl(rawUrl) {
+  const target = safeUrl(rawUrl);
+  if (!target) {
+    throw new Error("網址格式不支援，或指向本機/私有網段。");
+  }
+  const url = target.toString();
+  const html = await fetchText(url);
+  const recipe = extractRecipeFromHtml(html, url);
+  if (!recipe.ingredients.length && !recipe.steps.length) {
+    recipe.warning = "沒有找到明確的材料或步驟，可能需要打開原文確認。";
+  }
+  return {
+    url,
+    html,
+    recipe,
+    discoveredLinks: discoverRecipeLinks(html, url),
+    isRecipe: isLikelyRecipe(recipe),
+  };
+}
+
 async function enrichSearchResults(results) {
   const queue = results.slice(0, 6);
   const enriched = [];
@@ -832,13 +931,40 @@ async function runContentUpdate(reason = "manual") {
 
     for (const sourceUrl of source.urls) {
       try {
-        const recipe = await extractFromUrl(sourceUrl);
-        const sourceItem = {
-          ...recipe,
-          crawlQuery: "MD 網址清單",
-          sourceListUrl: sourceUrl,
-        };
-        collected = mergeCrawledItems(collected, [sourceItem], "MD 網址清單");
+        const inspected = await inspectSourceUrl(sourceUrl);
+        const items = [];
+        if (inspected.isRecipe || !inspected.discoveredLinks.length) {
+          items.push({
+            ...inspected.recipe,
+            crawlQuery: "MD 網址清單",
+            sourceListUrl: sourceUrl,
+            discoveredFrom: inspected.isRecipe ? "" : sourceUrl,
+          });
+        }
+
+        for (const link of inspected.discoveredLinks) {
+          if (items.length >= CONTENT_DISCOVERY_LIMIT_PER_SOURCE) break;
+          try {
+            const recipe = await extractFromUrl(link.url);
+            if (!isLikelyRecipe(recipe) && recipe.extractedFrom !== "json-ld") continue;
+            items.push({
+              ...recipe,
+              searchTitle: link.title,
+              crawlQuery: "MD 網址清單",
+              sourceListUrl: link.url,
+              discoveredFrom: sourceUrl,
+            });
+          } catch (error) {
+            errors.push(`${link.url}: ${error.message}`);
+          }
+        }
+
+        if (!items.length) {
+          errors.push(`${sourceUrl}: 沒有找到可用的單篇食譜連結。`);
+          continue;
+        }
+
+        collected = mergeCrawledItems(collected, items, "MD 網址清單").slice(0, CONTENT_MAX_ITEMS);
         writeCrawlIndex({
           ...readCrawlIndex(),
           status: "running",

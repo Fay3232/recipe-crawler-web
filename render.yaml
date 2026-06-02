@@ -18,6 +18,10 @@ services:
         value: recipe-urls.md
       - key: CONTENT_SOURCE_URL_LIMIT
         value: 80
+      - key: CONTENT_DISCOVERY_LIMIT_PER_SOURCE
+        value: 6
+      - key: CONTENT_MAX_ITEMS
+        value: 80
       - key: FETCH_TIMEOUT_MS
         value: 9000
       - key: SEARCH_CACHE_TTL_SECONDS
