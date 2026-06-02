@@ -10,8 +10,11 @@ https://example.com/your-recipe-page
 
 ## 我的來源
 
-https://icook.tw/
-https://cookpad.com/tw
-https://www.wecook123.com/
-https://www.ytower.com.tw/recipe/?srsltid=AfmBOop_r1kf4df9UPYfkFCnAmbHk4ahFMdLEWaN9bwzQXKRECs1OOKN
-https://tasty-note.com/
+https://tasty-note.com/horinishi-chicken-curry/
+https://tasty-note.com/chicken-breast-dry-curry/
+https://tasty-note.com/clam-butter-miso-soup/
+https://tasty-note.com/tuna-mayo-udon/
+https://tasty-note.com/daikon-oden/
+https://tasty-note.com/mixed-seafood-fried-rice/
+https://tasty-note.com/tender-napa-pork-miso-soup/
+https://tasty-note.com/beef-shigureni/
