@@ -459,6 +459,43 @@ input[type="checkbox"] {
   padding: 0;
 }
 
+.pagination {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.pagination[hidden] {
+  display: none !important;
+}
+
+.pagination .button {
+  min-width: 86px;
+  min-height: 38px;
+}
+
+.pagination .button:disabled {
+  cursor: not-allowed;
+  color: #9aa6a1;
+  background: #f4f7f5;
+  border-color: var(--line);
+}
+
+#pageStatus {
+  color: #46544f;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+}
+
 .result-card {
   display: grid;
   grid-template-columns: 88px 1fr auto;

@@ -26,6 +26,8 @@ const state = {
   favorites: new Set(JSON.parse(localStorage.getItem("recipeFavorites") || "[]")),
   notes: JSON.parse(localStorage.getItem("recipeNotes") || "{}"),
   lastQuery: "",
+  currentPage: 1,
+  pageSize: 20,
 };
 
 const ALL_FILTER_VALUE = "全部";
@@ -58,6 +60,10 @@ const elements = {
   resultList: $("#resultList"),
   resultTitle: $("#resultTitle"),
   resultStatus: $("#resultStatus"),
+  pagination: $("#pagination"),
+  prevPage: $("#prevPage"),
+  nextPage: $("#nextPage"),
+  pageStatus: $("#pageStatus"),
   sortSelect: $("#sortSelect"),
   typeSelect: $("#typeSelect"),
   cuisineSelect: $("#cuisineSelect"),
@@ -282,7 +288,7 @@ function setLoading(isLoading, message = "") {
 }
 
 function startCrawlTicker() {
-  const messages = ["正在讀取 MD 網址清單...", "正在擷取來源網頁...", "正在整理材料與做法...", "正在更新料理索引..."];
+  const messages = ["正在讀取來源清單...", "正在擷取來源網頁...", "正在整理材料與做法...", "正在更新料理索引..."];
   let index = 0;
   setLoading(true, messages[index]);
   return window.setInterval(() => {
@@ -318,9 +324,9 @@ async function performSearch(query) {
 }
 
 function buildStatus(payload) {
-  if (payload.mode === "content") return `已載入 MD 網址清單索引，共 ${payload.crawl?.itemCount || payload.items?.length || 0} 筆整理結果。`;
-  if (payload.mode === "empty") return "MD 網址清單索引沒有符合的結果。";
-  if (payload.mode === "sample") return "尚未從 MD 網址清單建立索引，目前先顯示示範資料。";
+  if (payload.mode === "content") return `已載入來源清單索引，共 ${payload.crawl?.itemCount || payload.items?.length || 0} 筆整理結果。`;
+  if (payload.mode === "empty") return "來源清單索引沒有符合的結果。";
+  if (payload.mode === "sample") return "尚未從來源清單建立索引，目前先顯示示範資料。";
   return "結果已更新。";
 }
 
@@ -328,6 +334,7 @@ function setRecipes(items, statusText) {
   state.allItems = items.map(normalizeRecipe);
   state.selectedId = state.allItems[0]?.id || "";
   state.servingCount = getBaseServing(selectedRecipe()) || 2;
+  state.currentPage = 1;
   elements.resultStatus.textContent = statusText;
   applyFilters();
 }
@@ -372,6 +379,7 @@ function passesTime(recipe) {
 }
 
 function passesServing(recipe) {
+  if (!elements.servingSelect) return true;
   const value = elements.servingSelect.value;
   if (isAllFilter(value)) return true;
   const base = getBaseServing(recipe);
@@ -386,7 +394,8 @@ function getBaseServing(recipe) {
   return 2;
 }
 
-function applyFilters() {
+function applyFilters(options = {}) {
+  const resetPage = options.resetPage !== false;
   const typeValue = elements.typeSelect.value;
   const cuisineValue = elements.cuisineSelect.value;
   const structuredOnly = elements.structuredOnly.checked;
@@ -413,11 +422,26 @@ function applyFilters() {
 
   items = sortRecipes(items);
   state.visibleItems = items;
-  if (!items.some((item) => item.id === state.selectedId)) {
-    state.selectedId = items[0]?.id || "";
+  if (resetPage) state.currentPage = 1;
+  state.currentPage = clampPage(state.currentPage);
+  if (resetPage || !items.some((item) => item.id === state.selectedId)) {
+    state.selectedId = pageItems()[0]?.id || items[0]?.id || "";
   }
   renderResults();
   renderDetail();
+}
+
+function totalPages() {
+  return Math.max(1, Math.ceil(state.visibleItems.length / state.pageSize));
+}
+
+function clampPage(page) {
+  return Math.min(Math.max(1, Number(page) || 1), totalPages());
+}
+
+function pageItems() {
+  const start = (state.currentPage - 1) * state.pageSize;
+  return state.visibleItems.slice(start, start + state.pageSize);
 }
 
 function sortRecipes(items) {
@@ -431,13 +455,16 @@ function sortRecipes(items) {
 }
 
 function renderResults() {
+  const pages = totalPages();
+  const currentItems = pageItems();
   elements.resultTitle.textContent = `找到 ${state.visibleItems.length} 個結果`;
   if (!state.visibleItems.length) {
     elements.resultList.innerHTML = `<div class="empty-detail"><p>沒有符合篩選的結果。</p></div>`;
+    renderPagination();
     return;
   }
 
-  elements.resultList.innerHTML = state.visibleItems
+  elements.resultList.innerHTML = currentItems
     .map((recipe) => {
       const isActive = recipe.id === state.selectedId;
       const isFavorite = state.favorites.has(recipe.id);
@@ -480,6 +507,29 @@ function renderResults() {
       renderDetail();
     });
   });
+  renderPagination(pages, currentItems.length);
+}
+
+function renderPagination(pages = totalPages(), currentCount = pageItems().length) {
+  if (!elements.pagination) return;
+  const total = state.visibleItems.length;
+  const start = total ? (state.currentPage - 1) * state.pageSize + 1 : 0;
+  const end = total ? start + currentCount - 1 : 0;
+  elements.pagination.hidden = total <= state.pageSize;
+  elements.prevPage.disabled = state.currentPage <= 1;
+  elements.nextPage.disabled = state.currentPage >= pages;
+  elements.pageStatus.textContent = total
+    ? `第 ${state.currentPage} / ${pages} 頁，顯示 ${start}-${end} 筆，共 ${total} 筆`
+    : "沒有結果";
+}
+
+function goToPage(page) {
+  state.currentPage = clampPage(page);
+  const currentItems = pageItems();
+  state.selectedId = currentItems[0]?.id || state.visibleItems[0]?.id || "";
+  state.servingCount = getBaseServing(selectedRecipe()) || 2;
+  renderResults();
+  renderDetail();
 }
 
 function renderThumb(recipe) {
@@ -955,7 +1005,7 @@ function renderSourceStatus(crawl = {}) {
   if (!elements.sourceStatus) return;
   const rows = [
     {
-      label: `來源檔：${crawl.sourceFile || "recipe-urls.md"}`,
+      label: `來源檔：${crawl.sourceFile || "來源清單"}`,
       ready: true,
     },
     {
@@ -972,8 +1022,8 @@ function renderCrawlPanel(crawl) {
   if (!crawl || !elements.crawlPanelStatus) return;
   const running = crawl.status === "running";
   elements.crawlPanelStatus.textContent = running
-    ? "正在依 MD 網址清單更新內容"
-    : `MD 網址清單已整理 ${crawl.itemCount || 0} 筆食譜`;
+    ? "正在依來源清單更新內容"
+    : `來源清單已整理 ${crawl.itemCount || 0} 筆食譜`;
   elements.crawlPanelMeta.textContent = `上次完成：${formatDateTime(crawl.lastFinishedAt)}｜更新方式：手動按內容更新`;
   renderSourceStatus(crawl);
   elements.crawlTopics.innerHTML = (crawl.sourceUrls || crawl.queries || [])
@@ -1003,7 +1053,7 @@ async function runContentUpdateNow() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "內容更新啟動失敗");
     renderCrawlPanel(payload.crawl);
-    showToast("內容更新已開始，系統會依 recipe-urls.md 擷取。");
+    showToast("內容更新已開始，系統會依來源清單擷取。");
     pollCrawlUntilIdle();
   } catch (error) {
     showToast(error.message || "內容更新啟動失敗");
@@ -1035,7 +1085,7 @@ function bindEvents() {
     state.activeDifficulty = "全部";
     elements.typeSelect.value = "全部";
     elements.cuisineSelect.value = "全部";
-    elements.servingSelect.value = "全部";
+    if (elements.servingSelect) elements.servingSelect.value = "全部";
     elements.favoriteOnly.checked = false;
     elements.structuredOnly.checked = false;
     $$('input[name="time"]').forEach((input) => {
@@ -1047,7 +1097,7 @@ function bindEvents() {
   });
 
   ["change", "input"].forEach((eventName) => {
-    [elements.typeSelect, elements.cuisineSelect, elements.servingSelect, elements.favoriteOnly, elements.structuredOnly, elements.sortSelect].forEach((control) =>
+    [elements.typeSelect, elements.cuisineSelect, elements.servingSelect, elements.favoriteOnly, elements.structuredOnly, elements.sortSelect].filter(Boolean).forEach((control) =>
       control.addEventListener(eventName, applyFilters),
     );
   });
@@ -1074,6 +1124,9 @@ function bindEvents() {
     state.compact = !state.compact;
     renderResults();
   });
+
+  elements.prevPage?.addEventListener("click", () => goToPage(state.currentPage - 1));
+  elements.nextPage?.addEventListener("click", () => goToPage(state.currentPage + 1));
 
   elements.saveButton.addEventListener("click", () => toggleFavorite());
   $("#increaseServing").addEventListener("click", () => {
@@ -1111,17 +1164,17 @@ function bindEvents() {
 
   $("#printButton").addEventListener("click", () => window.print());
 
-  elements.importToggle.addEventListener("click", () => {
+  elements.importToggle?.addEventListener("click", () => {
     const hidden = !elements.importPanel.hidden;
     elements.importPanel.hidden = hidden;
     elements.importToggle.setAttribute("aria-expanded", String(!hidden));
     if (!hidden) fetchCrawlStatus();
   });
-  elements.bulkButton.addEventListener("click", runContentUpdateNow);
-  elements.refreshCrawlStatus.addEventListener("click", fetchCrawlStatus);
+  elements.bulkButton?.addEventListener("click", runContentUpdateNow);
+  elements.refreshCrawlStatus?.addEventListener("click", fetchCrawlStatus);
 
   $("#helpButton").addEventListener("click", () => {
-    showToast("把食譜網址貼進 recipe-urls.md，按內容更新後系統會依清單重新擷取。");
+    showToast("更新食譜來源後，按內容更新即可重新擷取。");
   });
 }
 

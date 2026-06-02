@@ -29,12 +29,12 @@ const HOST = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 9000);
 const SEARCH_CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_SECONDS || 3600) * 1000;
-const MAX_SEARCH_RESULTS = Number(process.env.MAX_SEARCH_RESULTS || 8);
+const MAX_SEARCH_RESULTS = Number(process.env.MAX_SEARCH_RESULTS || 500);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 256 * 1024);
 const CONTENT_SOURCE_FILE = process.env.CONTENT_SOURCE_FILE || "recipe-urls.md";
 const CONTENT_SOURCE_URL_LIMIT = Number(process.env.CONTENT_SOURCE_URL_LIMIT || 80);
 const CONTENT_DISCOVERY_LIMIT_PER_SOURCE = Number(process.env.CONTENT_DISCOVERY_LIMIT_PER_SOURCE || 6);
-const CONTENT_MAX_ITEMS = Number(process.env.CONTENT_MAX_ITEMS || 80);
+const CONTENT_MAX_ITEMS = Number(process.env.CONTENT_MAX_ITEMS || 500);
 const MAX_QUERY_LENGTH = 180;
 const searchCache = new Map();
 let activeCrawlPromise = null;
@@ -1403,7 +1403,7 @@ async function runContentUpdate(reason = "manual") {
     let collected = [];
 
     if (!source.urls.length) {
-      errors.push(`${source.relativePath} 沒有可用網址。請把食譜頁面網址貼進 MD 檔後再更新。`);
+      errors.push(`${source.relativePath} 沒有可用網址。請把食譜頁面網址加入來源清單後再更新。`);
     }
 
     for (const sourceUrl of source.urls) {
@@ -1413,7 +1413,7 @@ async function runContentUpdate(reason = "manual") {
         if (inspected.isRecipe || !inspected.discoveredLinks.length) {
           items.push({
             ...inspected.recipe,
-            crawlQuery: "MD 網址清單",
+            crawlQuery: "來源清單",
             sourceListUrl: sourceUrl,
             discoveredFrom: inspected.isRecipe ? "" : sourceUrl,
           });
@@ -1427,7 +1427,7 @@ async function runContentUpdate(reason = "manual") {
             items.push({
               ...recipe,
               searchTitle: link.title,
-              crawlQuery: "MD 網址清單",
+              crawlQuery: "來源清單",
               sourceListUrl: link.url,
               discoveredFrom: sourceUrl,
             });
@@ -1441,7 +1441,7 @@ async function runContentUpdate(reason = "manual") {
           continue;
         }
 
-        collected = mergeCrawledItems(collected, items, "MD 網址清單").slice(0, CONTENT_MAX_ITEMS);
+        collected = mergeCrawledItems(collected, items, "來源清單").slice(0, CONTENT_MAX_ITEMS);
         writeCrawlIndex({
           ...readCrawlIndex(),
           status: "running",
@@ -1719,7 +1719,7 @@ function fallbackRecipesForQueries(queries) {
       description: "外部來源暫時無法爬取，先建立可搜尋的料理占位資料。",
       image: "",
       ingredients: ["主要食材 適量", "調味料 適量"],
-      steps: ["等待 MD 網址清單更新補齊來源。", "可先用這筆資料建立搜尋與分類索引。"],
+      steps: ["等待來源清單更新補齊來源。", "可先用這筆資料建立搜尋與分類索引。"],
       servings: "",
       time: "",
       difficulty: "普通",
@@ -1756,7 +1756,7 @@ async function handleSearch(req, res, url) {
       items: crawled,
       mode: crawled.length ? "content" : "empty",
       crawl: publicCrawlStatus(),
-      warning: crawled.length ? "" : "尚未從 MD 網址清單建立內容索引。請在 recipe-urls.md 貼上網址後按內容更新。",
+      warning: crawled.length ? "" : "尚未從來源清單建立內容索引。請加入食譜網址後按內容更新。",
     });
     return;
   }
@@ -1788,14 +1788,14 @@ async function handleSearch(req, res, url) {
         items: [],
         mode: "empty",
         crawl: publicCrawlStatus(),
-        warning: "已更新的 MD 網址清單中沒有符合這個關鍵字的食譜。",
+        warning: "已更新的來源清單中沒有符合這個關鍵字的食譜。",
       }
     : {
         query,
         items: [],
         mode: "empty",
         crawl: publicCrawlStatus(),
-        warning: "尚未從 MD 網址清單建立內容索引。請在 recipe-urls.md 貼上網址後按內容更新。",
+        warning: "尚未從來源清單建立內容索引。請加入食譜網址後按內容更新。",
       };
   setCached(cacheKey, payload);
   sendJson(res, 200, payload);
