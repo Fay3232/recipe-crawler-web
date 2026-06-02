@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>料理快搜</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23128245'/%3E%3Cpath d='M16 29h32v5a16 16 0 0 1-32 0v-5Z' fill='white'/%3E%3Cpath d='M21 24c0-4 4-4 4-8M32 24c0-4 4-4 4-8M43 24c0-4 4-4 4-8' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -190,7 +191,6 @@
 
             <nav class="tabs" aria-label="食譜分頁">
               <button class="active" type="button" data-tab="content">食譜內容</button>
-              <button type="button" data-tab="sources">來源比較</button>
               <button type="button" data-tab="nutrition">營養估算</button>
               <button type="button" data-tab="notes">筆記</button>
             </nav>
@@ -216,20 +216,7 @@
                   <ol id="stepList"></ol>
                   <div class="micro-tip" id="microTip"></div>
                 </section>
-
-                <aside class="source-box">
-                  <h3>來源連結</h3>
-                  <div id="sourceLinks"></div>
-                  <div class="status-line">
-                    <h3>爬取狀態</h3>
-                    <ol id="crawlSteps"></ol>
-                  </div>
-                </aside>
               </div>
-            </div>
-
-            <div class="tab-panel" id="tab-sources">
-              <div class="compare-list" id="compareList"></div>
             </div>
 
             <div class="tab-panel" id="tab-nutrition">

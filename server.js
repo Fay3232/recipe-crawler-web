@@ -582,6 +582,86 @@ function absolutizeUrl(maybeUrl, baseUrl) {
   }
 }
 
+function coerceImageUrl(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = coerceImageUrl(item);
+      if (url) return url;
+    }
+    return "";
+  }
+  if (typeof value === "object") {
+    return coerceImageUrl(value.url || value.src || value.contentUrl || value["@id"]);
+  }
+  return "";
+}
+
+function srcFromSrcset(value = "") {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().split(/\s+/)[0])
+    .find(Boolean) || "";
+}
+
+function isLikelyContentImage(url = "", attrs = "") {
+  const haystack = safeDecodeUriText(`${url} ${attrs}`).toLowerCase();
+  if (!/\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url) && !/image|photo|cover|recipe|food|dish|wp-content|uploads/i.test(haystack)) {
+    return false;
+  }
+  return !/(logo|icon|avatar|profile|banner|ad-|ads|sprite|placeholder|loading|blank|tracking|pixel|share|facebook|instagram|line|youtube)/i.test(haystack);
+}
+
+function attrValue(attrs = "", name = "") {
+  const pattern = new RegExp(`\\b${escapeRegex(name)}\\s*=\\s*["']([^"']+)["']`, "i");
+  return decodeEntities((attrs.match(pattern) || [])[1] || "");
+}
+
+function extractFirstContentImage(html = "", baseUrl = "") {
+  const candidates = [];
+  const imageRegex = /<img\b([^>]*)>/gi;
+  let match;
+  while ((match = imageRegex.exec(html))) {
+    const attrs = match[1] || "";
+    const src =
+      attrValue(attrs, "data-src") ||
+      attrValue(attrs, "data-lazy-src") ||
+      attrValue(attrs, "data-original") ||
+      attrValue(attrs, "data-url") ||
+      srcFromSrcset(attrValue(attrs, "srcset") || attrValue(attrs, "data-srcset")) ||
+      attrValue(attrs, "src");
+    const imageUrl = absolutizeUrl(decodeEntities(src), baseUrl);
+    if (!imageUrl || !isLikelyContentImage(imageUrl, attrs)) continue;
+    const score =
+      (/cover|main|featured|hero|recipe|food|dish|post|entry|wp-image|attachment/i.test(attrs) ? 20 : 0) +
+      (/uploads|wp-content|recipe|food|dish/i.test(imageUrl) ? 12 : 0) -
+      (/thumb|small|icon|avatar|profile/i.test(attrs) ? 10 : 0);
+    candidates.push({ imageUrl, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.imageUrl || "";
+}
+
+function extractPageImage(html = "", baseUrl = "", scopedHtml = "") {
+  const metaImage =
+    getMeta(html, "og:image:secure_url") ||
+    getMeta(html, "og:image") ||
+    getMeta(html, "twitter:image") ||
+    getMeta(html, "twitter:image:src") ||
+    getMeta(html, "thumbnail") ||
+    getMeta(html, "sailthru.image.full");
+  if (metaImage) return absolutizeUrl(metaImage, baseUrl);
+
+  const linkMatch = html.match(/<link[^>]+rel=["'][^"']*(?:image_src|preload)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/i);
+  if (linkMatch) {
+    const linked = absolutizeUrl(decodeEntities(linkMatch[1]), baseUrl);
+    if (linked) return linked;
+  }
+
+  return extractFirstContentImage(scopedHtml, baseUrl) || extractFirstContentImage(html, baseUrl);
+}
+
 function sameSiteUrl(candidate, baseUrl) {
   try {
     const target = new URL(candidate);
@@ -1132,9 +1212,7 @@ function mapJsonLdRecipe(recipe, url, html) {
         .map((item) => item.trim())
         .filter(Boolean);
 
-  const image = Array.isArray(recipe.image)
-    ? recipe.image[0]?.url || recipe.image[0]
-    : recipe.image?.url || recipe.image || getMeta(html, "og:image");
+  const image = coerceImageUrl(recipe.image) || extractPageImage(html, url);
 
   return {
     title: stripTags(recipe.name || titleFromHtml(html) || new URL(url).hostname),
@@ -1207,14 +1285,14 @@ function extractRecipeFromHtml(html, url) {
   const steps = inferSteps(scopedHtml, plainText);
   const title = titleFromHtml(html) || getMeta(html, "og:title") || new URL(url).hostname;
   const description = getMeta(html, "description") || getMeta(html, "og:description") || "";
-  const image = getMeta(html, "og:image");
+  const image = extractPageImage(html, url, scopedHtml);
   const recipe = {
     title,
     source: new URL(url).hostname.replace(/^www\./, ""),
     sourceUrl: url,
     canonicalUrl: getMeta(html, "og:url") || url,
     description: stripTags(description),
-    image: image ? absolutizeUrl(image, url) : "",
+    image,
     ingredients: dedupe(fallbackIngredients.map(normalizeRecipeLine).filter(isLikelyIngredientLine)).slice(0, 32),
     steps,
     servings: "",
@@ -1826,6 +1904,52 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+async function handleImageProxy(res, url) {
+  const rawUrl = url.searchParams.get("url") || "";
+  const target = safeUrl(rawUrl);
+  if (!target) {
+    sendText(res, 400, "Invalid image URL");
+    return;
+  }
+
+  const response = await fetch(target.toString(), {
+    redirect: "follow",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 RecipeCrawler/1.0",
+      accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    },
+  });
+  if (!response.ok) {
+    sendText(res, response.status, "Image unavailable");
+    return;
+  }
+
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  if (!/^image\//i.test(contentType)) {
+    sendText(res, 415, "Unsupported image type");
+    return;
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > 3 * 1024 * 1024) {
+    sendText(res, 413, "Image too large");
+    return;
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > 3 * 1024 * 1024) {
+    sendText(res, 413, "Image too large");
+    return;
+  }
+
+  res.writeHead(200, securityHeaders({
+    "content-type": contentType,
+    "cache-control": "public, max-age=86400",
+  }));
+  res.end(buffer);
+}
+
 function createServer() {
   return http.createServer(async (req, res) => {
     try {
@@ -1860,6 +1984,10 @@ function createServer() {
       }
       if (req.method === "GET" && parsedUrl.pathname === "/api/search") {
         await handleSearch(req, res, parsedUrl);
+        return;
+      }
+      if (req.method === "GET" && parsedUrl.pathname === "/api/image") {
+        await handleImageProxy(res, parsedUrl);
         return;
       }
       if (req.method === "GET" && parsedUrl.pathname === "/api/extract") {

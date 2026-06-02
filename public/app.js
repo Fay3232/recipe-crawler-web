@@ -28,6 +28,30 @@ const state = {
   lastQuery: "",
 };
 
+const ALL_FILTER_VALUE = "全部";
+const CUISINE_OPTIONS = [
+  [ALL_FILTER_VALUE, "全部菜系"],
+  ["日式", "日式"],
+  ["台式", "台式"],
+  ["中式", "中式"],
+  ["韓式", "韓式"],
+  ["東南亞", "東南亞"],
+  ["西式", "西式"],
+  ["甜點烘焙", "甜點 / 烘焙"],
+  ["飲品", "飲品"],
+];
+
+const CUISINE_ALIASES = {
+  日式: ["日式", "日本", "和風", "味醂", "唐揚", "照燒", "壽喜燒", "味噌", "tasty-note"],
+  台式: ["台式", "台灣", "三杯", "滷肉", "肉燥", "鹽酥", "ytower", "icook.tw"],
+  中式: ["中式", "川菜", "粵菜", "上海", "紅燒", "清蒸", "宮保", "麻婆"],
+  韓式: ["韓式", "韓國", "泡菜", "韓式辣醬", "年糕", "部隊鍋"],
+  東南亞: ["泰式", "越式", "南洋", "咖哩", "椰奶", "檸檬草", "魚露"],
+  西式: ["西式", "義式", "法式", "美式", "pasta", "risotto", "steak", "cheese", "butter"],
+  甜點烘焙: ["甜點", "烘焙", "蛋糕", "餅乾", "麵包", "布丁", "tiramisu", "巧克力"],
+  飲品: ["飲品", "果汁", "茶", "咖啡", "奶昔", "smoothie"],
+};
+
 const elements = {
   searchForm: $("#searchForm"),
   queryInput: $("#queryInput"),
@@ -46,13 +70,10 @@ const elements = {
   detailMeta: $("#detailMeta"),
   ingredientList: $("#ingredientList"),
   stepList: $("#stepList"),
-  sourceLinks: $("#sourceLinks"),
-  crawlSteps: $("#crawlSteps"),
   tipCard: $("#tipCard"),
   microTip: $("#microTip"),
   saveButton: $("#saveButton"),
   servingCount: $("#servingCount"),
-  compareList: $("#compareList"),
   nutritionGrid: $("#nutritionGrid"),
   noteArea: $("#noteArea"),
   noteStatus: $("#noteStatus"),
@@ -87,17 +108,60 @@ function normalizeRecipe(item, index = 0) {
     sourceUrl,
     canonicalUrl: item.canonicalUrl || sourceUrl,
     description: item.description || "此來源可供比對，請打開原文確認完整內容。",
-    image: item.image || "",
+    image: resolveRecipeImage(item, sourceUrl),
     ingredients: Array.isArray(item.ingredients) ? item.ingredients.filter(Boolean) : [],
     steps: Array.isArray(item.steps) ? item.steps.filter(Boolean) : [],
     servings: item.servings || "",
     time: item.time || "",
     difficulty: item.difficulty || "普通",
     tags: Array.isArray(item.tags) ? item.tags.filter(Boolean) : [],
+    cuisine: item.cuisine || inferCuisineFromRecipe(item),
     quality: Number(item.quality || 50),
     extractedFrom: item.extractedFrom || "unknown",
     warning: item.warning || "",
   };
+}
+
+function resolveRecipeImage(item = {}, baseUrl = "") {
+  const candidates = [
+    item.image,
+    item.imageUrl,
+    item.thumbnail,
+    item.thumbnailUrl,
+    item.photo,
+    item.photos,
+    item.images,
+    item.primaryImage,
+  ];
+  for (const candidate of candidates) {
+    const url = coerceImageUrl(candidate);
+    if (url) return absolutizeImageUrl(url, baseUrl);
+  }
+  return "";
+}
+
+function coerceImageUrl(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = coerceImageUrl(item);
+      if (url) return url;
+    }
+    return "";
+  }
+  if (typeof value === "object") {
+    return coerceImageUrl(value.url || value.src || value.contentUrl || value["@id"]);
+  }
+  return "";
+}
+
+function absolutizeImageUrl(url, baseUrl = "") {
+  try {
+    return new URL(url, baseUrl || window.location.href).toString();
+  } catch {
+    return "";
+  }
 }
 
 function hostName(url) {
@@ -106,6 +170,49 @@ function hostName(url) {
   } catch {
     return "";
   }
+}
+
+function isAllFilter(value) {
+  const text = String(value || "").trim();
+  return !text || text === ALL_FILTER_VALUE || text.includes("全部") || text.includes("券");
+}
+
+function configureCuisineOptions() {
+  if (!elements.cuisineSelect) return;
+  elements.cuisineSelect.innerHTML = CUISINE_OPTIONS
+    .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+    .join("");
+}
+
+function removeSourceSections() {
+  document.querySelector('.tabs button[data-tab="sources"]')?.remove();
+  document.querySelector("#tab-sources")?.remove();
+  document.querySelector(".source-box")?.remove();
+}
+
+function inferCuisineFromRecipe(recipe = {}) {
+  const text = [
+    recipe.title,
+    recipe.description,
+    recipe.source,
+    recipe.sourceUrl,
+    ...(Array.isArray(recipe.tags) ? recipe.tags : []),
+    ...(Array.isArray(recipe.ingredients) ? recipe.ingredients : []),
+  ].join(" ");
+  const lower = text.toLowerCase();
+  let best = "其他";
+  let bestScore = 0;
+  Object.entries(CUISINE_ALIASES).forEach(([cuisine, aliases]) => {
+    const score = aliases.reduce((total, alias) => {
+      const needle = alias.toLowerCase();
+      return total + (lower.includes(needle) ? (needle.length >= 4 ? 2 : 1) : 0);
+    }, 0);
+    if (score > bestScore) {
+      best = cuisine;
+      bestScore = score;
+    }
+  });
+  return best;
 }
 
 function escapeHtml(value = "") {
@@ -230,9 +337,17 @@ function selectedRecipe() {
 }
 
 function recipeMatchesCategory(recipe, value) {
-  if (value === "全部") return true;
+  if (isAllFilter(value)) return true;
   const haystack = `${recipe.title} ${recipe.description} ${recipe.tags.join(" ")} ${recipe.ingredients.join(" ")}`;
   return haystack.includes(value);
+}
+
+function recipeMatchesCuisine(recipe, value) {
+  if (isAllFilter(value)) return true;
+  if (recipe.cuisine === value) return true;
+  const aliases = CUISINE_ALIASES[value] || [value];
+  const haystack = `${recipe.cuisine} ${recipe.title} ${recipe.description} ${recipe.source} ${recipe.sourceUrl} ${recipe.tags.join(" ")} ${recipe.ingredients.join(" ")}`.toLowerCase();
+  return aliases.some((alias) => haystack.includes(String(alias).toLowerCase()));
 }
 
 function getMinutes(recipe) {
@@ -258,7 +373,7 @@ function passesTime(recipe) {
 
 function passesServing(recipe) {
   const value = elements.servingSelect.value;
-  if (value === "全部") return true;
+  if (isAllFilter(value)) return true;
   const base = getBaseServing(recipe);
   if (value === "1") return base <= 1;
   if (value === "2") return base >= 2 && base <= 3;
@@ -280,8 +395,8 @@ function applyFilters() {
   let items = state.allItems.filter((recipe) => {
     const matchesType = recipeMatchesCategory(recipe, typeValue);
     const matchesChip = recipeMatchesCategory(recipe, state.activeCategory);
-    const matchesCuisine = recipeMatchesCategory(recipe, cuisineValue);
-    const matchesDifficulty = state.activeDifficulty === "全部" || recipe.difficulty === state.activeDifficulty;
+    const matchesCuisine = recipeMatchesCuisine(recipe, cuisineValue);
+    const matchesDifficulty = isAllFilter(state.activeDifficulty) || recipe.difficulty === state.activeDifficulty;
     const hasStructure = recipe.ingredients.length > 0 && recipe.steps.length > 0;
     const isFavorite = state.favorites.has(recipe.id);
     return (
@@ -349,6 +464,14 @@ function renderResults() {
     })
     .join("");
 
+  $$(".result-card img").forEach((image) => {
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      const fallback = image.nextElementSibling;
+      if (fallback) fallback.hidden = false;
+    });
+  });
+
   $$(".result-card").forEach((card) => {
     card.addEventListener("click", () => {
       state.selectedId = card.dataset.id;
@@ -360,11 +483,15 @@ function renderResults() {
 }
 
 function renderThumb(recipe) {
+  const fallback = recipe.title.replace(/\s+/g, "").slice(0, 2) || "食";
   if (recipe.image) {
-    return `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.title)}" loading="lazy" referrerpolicy="no-referrer" />`;
+    const proxyUrl = `/api/image?url=${encodeURIComponent(recipe.image)}`;
+    return `
+      <img src="${escapeHtml(proxyUrl)}" alt="${escapeHtml(recipe.title)}" loading="lazy" referrerpolicy="no-referrer" />
+      <span class="thumb-fallback" hidden>${escapeHtml(fallback)}</span>
+    `;
   }
-  const text = recipe.title.replace(/\s+/g, "").slice(0, 2) || "食";
-  return `<span>${escapeHtml(text)}</span>`;
+  return `<span class="thumb-fallback">${escapeHtml(fallback)}</span>`;
 }
 
 function qualityLabel(score) {
@@ -397,11 +524,8 @@ function renderDetail() {
   elements.servingCount.textContent = state.servingCount;
   renderIngredients(recipe);
   renderSteps(recipe);
-  renderSources(recipe);
-  renderCompareList();
   renderNutrition(recipe);
   renderNotes(recipe);
-  renderCrawlSteps(recipe);
   elements.updatedAt.textContent = `最後更新：${new Date().toLocaleString("zh-TW", { hour12: false })}`;
 }
 
@@ -505,20 +629,201 @@ function renderCompareList() {
 }
 
 function renderNutrition(recipe) {
-  const text = `${recipe.title} ${recipe.ingredients.join(" ")}`;
-  const hasMeat = /(雞|牛|豬|魚|蝦|肉|egg|蛋)/i.test(text);
-  const hasCream = /(奶油|鮮奶油|起司|乳酪|mascarpone|cheese)/i.test(text);
-  const vegetableCount = (text.match(/番茄|洋蔥|青菜|蘿蔔|馬鈴薯|菇|蔥|蒜|菜/g) || []).length;
-  const baseCalories = 220 + recipe.ingredients.length * 22 + (hasCream ? 160 : 0) + (hasMeat ? 90 : 0);
-  const cards = [
-    ["熱量", `約 ${baseCalories} kcal`, "依材料粗估，實際以用量為準"],
-    ["蛋白質", hasMeat ? "中高" : "中低", hasMeat ? "含蛋、肉類或海鮮" : "可加豆腐或蛋補足"],
-    ["蔬菜量", vegetableCount >= 3 ? "充足" : "可增加", vegetableCount >= 3 ? "蔬菜元素明顯" : "搭配青菜更均衡"],
-    ["調味強度", /(醬油|鹽|咖哩|味噌|辣)/.test(text) ? "中等" : "清爽", "可依口味減鹽或加酸味"],
+  const nutrition = estimateNutrition(recipe);
+  const rows = [
+    ["熱量", "大卡", nutrition.perServing.calories, nutrition.per100g.calories],
+    ["蛋白質", "公克", nutrition.perServing.protein, nutrition.per100g.protein],
+    ["脂肪", "公克", nutrition.perServing.fat, nutrition.per100g.fat],
+    ["飽和脂肪", "公克", nutrition.perServing.saturatedFat, nutrition.per100g.saturatedFat],
+    ["反式脂肪", "公克", nutrition.perServing.transFat, nutrition.per100g.transFat],
+    ["碳水化合物", "公克", nutrition.perServing.carbs, nutrition.per100g.carbs],
+    ["糖", "公克", nutrition.perServing.sugar, nutrition.per100g.sugar],
+    ["鈉", "毫克", nutrition.perServing.sodium, nutrition.per100g.sodium],
   ];
-  elements.nutritionGrid.innerHTML = cards
-    .map(([title, value, desc]) => `<div class="nutrition-card"><h4>${title}</h4><strong>${value}</strong><p>${desc}</p></div>`)
-    .join("");
+  elements.nutritionGrid.innerHTML = `
+    <div class="nutrition-panel">
+      <table class="nutrition-table">
+        <caption>營養標示</caption>
+        <tbody>
+          <tr>
+            <th scope="row">每一份量</th>
+            <td colspan="2">${nutrition.servingWeight} 公克（或毫升）</td>
+          </tr>
+          <tr>
+            <th scope="row">本包裝含</th>
+            <td colspan="2">${nutrition.servingCount} 份</td>
+          </tr>
+          <tr class="nutrition-head">
+            <th></th>
+            <th>每份</th>
+            <th>每 100 公克</th>
+          </tr>
+          ${rows
+            .map(
+              ([name, unit, perServing, per100g]) => `
+                <tr>
+                  <th scope="row">${name}</th>
+                  <td>${formatNutritionValue(perServing)} ${unit}</td>
+                  <td>${formatNutritionValue(per100g)} ${unit}</td>
+                </tr>
+              `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+      <p class="nutrition-note">${escapeHtml(nutrition.note)}</p>
+    </div>
+  `;
+}
+
+function estimateNutrition(recipe) {
+  const baseServings = getBaseServing(recipe) || 2;
+  const servings = Math.max(1, Number(state.servingCount || baseServings));
+  const ratio = servings / baseServings;
+  const total = {
+    weight: 0,
+    calories: 0,
+    protein: 0,
+    fat: 0,
+    saturatedFat: 0,
+    transFat: 0,
+    carbs: 0,
+    sugar: 0,
+    sodium: 0,
+  };
+
+  recipe.ingredients.forEach((line) => {
+    const ingredient = estimateIngredientNutrition(line);
+    Object.keys(total).forEach((key) => {
+      total[key] += ingredient[key] || 0;
+    });
+  });
+
+  if (total.weight < 80) {
+    total.weight = Math.max(240, recipe.ingredients.length * 70);
+    total.calories = Math.max(total.calories, 180 + recipe.ingredients.length * 45);
+  }
+
+  const scaledTotal = scaleNutritionTotal(total, ratio);
+  const perServing = divideNutrition(scaledTotal, servings);
+  const per100g = scaleNutrition(scaledTotal, 100 / Math.max(scaledTotal.weight, 1));
+  return {
+    servingCount: servings,
+    servingWeight: Math.max(1, Math.round(scaledTotal.weight / servings)),
+    perServing,
+    per100g,
+    note: "依食材文字與常見營養資料自動估算，實際數值會因品牌、份量與烹調方式不同而變動。",
+  };
+}
+
+function estimateIngredientNutrition(line = "") {
+  const text = String(line || "");
+  const weight = ingredientWeightGrams(text);
+  const profile = nutritionProfileFor(text);
+  return {
+    weight,
+    calories: (profile.calories * weight) / 100,
+    protein: (profile.protein * weight) / 100,
+    fat: (profile.fat * weight) / 100,
+    saturatedFat: (profile.saturatedFat * weight) / 100,
+    transFat: 0,
+    carbs: (profile.carbs * weight) / 100,
+    sugar: (profile.sugar * weight) / 100,
+    sodium: (profile.sodium * weight) / 100,
+  };
+}
+
+function ingredientWeightGrams(text) {
+  const multiplier = quantityMultiplier(text);
+  const grams = text.match(/(\d+(?:\.\d+)?)\s*(?:公克|克|g)/i);
+  if (grams) return Number(grams[1]) * multiplier;
+  const kg = text.match(/(\d+(?:\.\d+)?)\s*(?:公斤|kg)/i);
+  if (kg) return Number(kg[1]) * 1000 * multiplier;
+  const ml = text.match(/(\d+(?:\.\d+)?)\s*(?:毫升|ml|cc)/i);
+  if (ml) return Number(ml[1]) * multiplier;
+  const tbsp = text.match(/(\d+(?:\.\d+)?)\s*大匙/);
+  if (tbsp) return Number(tbsp[1]) * 15 * multiplier;
+  const tsp = text.match(/(\d+(?:\.\d+)?)\s*(?:小匙|茶匙)/);
+  if (tsp) return Number(tsp[1]) * 5 * multiplier;
+  const cup = text.match(/(\d+(?:\.\d+)?)\s*杯/);
+  if (cup) return Number(cup[1]) * 200 * multiplier;
+  const pieces = text.match(/(\d+(?:\.\d+)?)\s*(?:顆|個|片|根|支|瓣|朵|把|包)/);
+  if (pieces) return Number(pieces[1]) * defaultUnitWeight(text) * multiplier;
+  if (/少許/.test(text)) return 3;
+  if (/適量/.test(text)) return defaultUnitWeight(text);
+  return defaultUnitWeight(text);
+}
+
+function quantityMultiplier(text) {
+  if (!/各\s*\d|各\s*[一二三四五六七八九十半]/.test(text)) return 1;
+  const beforeEach = text.split(/各\s*(?:\d|[一二三四五六七八九十半])/)[0] || text;
+  const names = beforeEach
+    .replace(/[（(].*?[)）]/g, "")
+    .split(/[、，,・／/+]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return Math.max(1, Math.min(names.length, 4));
+}
+
+function defaultUnitWeight(text) {
+  if (/醬油|味噌|魚露|鹽|糖|砂糖|味醂|米酒|料理酒|油/.test(text)) return 12;
+  if (/蒜|薑|辣椒|蔥/.test(text)) return 8;
+  if (/蛋/.test(text)) return 55;
+  if (/肉|牛|豬|雞|魚|蝦/.test(text)) return 120;
+  if (/麵|飯|米|馬鈴薯|地瓜|粉/.test(text)) return 120;
+  if (/奶油|起司|乳酪|鮮奶油/.test(text)) return 25;
+  return 60;
+}
+
+function nutritionProfileFor(text) {
+  const profiles = [
+    [/醬油|魚露/, { calories: 53, protein: 8, fat: 0, saturatedFat: 0, carbs: 5, sugar: 1, sodium: 5600 }],
+    [/鹽/, { calories: 0, protein: 0, fat: 0, saturatedFat: 0, carbs: 0, sugar: 0, sodium: 39000 }],
+    [/砂糖|糖|蜂蜜|味醂/, { calories: 380, protein: 0, fat: 0, saturatedFat: 0, carbs: 95, sugar: 90, sodium: 5 }],
+    [/油|橄欖油|沙拉油|麻油/, { calories: 884, protein: 0, fat: 100, saturatedFat: 14, carbs: 0, sugar: 0, sodium: 0 }],
+    [/牛|牛肉/, { calories: 250, protein: 26, fat: 15, saturatedFat: 6, carbs: 0, sugar: 0, sodium: 72 }],
+    [/豬|豬肉/, { calories: 270, protein: 25, fat: 18, saturatedFat: 6, carbs: 0, sugar: 0, sodium: 62 }],
+    [/雞|雞肉/, { calories: 190, protein: 27, fat: 8, saturatedFat: 2.3, carbs: 0, sugar: 0, sodium: 74 }],
+    [/魚|蝦|海鮮/, { calories: 120, protein: 22, fat: 3, saturatedFat: 0.8, carbs: 0, sugar: 0, sodium: 120 }],
+    [/蛋/, { calories: 155, protein: 13, fat: 11, saturatedFat: 3.3, carbs: 1.1, sugar: 1.1, sodium: 124 }],
+    [/麵|飯|米|粉|馬鈴薯|地瓜/, { calories: 130, protein: 2.7, fat: 0.3, saturatedFat: 0.1, carbs: 28, sugar: 0.2, sodium: 2 }],
+    [/奶油|起司|乳酪|鮮奶油|cheese|butter/, { calories: 360, protein: 8, fat: 32, saturatedFat: 20, carbs: 4, sugar: 3, sodium: 650 }],
+    [/豆腐|豆|豆皮/, { calories: 90, protein: 8, fat: 5, saturatedFat: 0.8, carbs: 2, sugar: 0.7, sodium: 12 }],
+    [/番茄|洋蔥|青菜|蘿蔔|菇|蔥|蒜|薑|菜|高麗菜|紅蘿蔔/, { calories: 35, protein: 1.2, fat: 0.2, saturatedFat: 0, carbs: 7, sugar: 3, sodium: 20 }],
+  ];
+  const matched = profiles.find(([pattern]) => pattern.test(text));
+  return matched?.[1] || { calories: 90, protein: 2, fat: 2, saturatedFat: 0.5, carbs: 15, sugar: 2, sodium: 40 };
+}
+
+function divideNutrition(total, divisor) {
+  return scaleNutrition(total, 1 / Math.max(divisor, 1));
+}
+
+function scaleNutrition(total, ratio) {
+  return {
+    calories: total.calories * ratio,
+    protein: total.protein * ratio,
+    fat: total.fat * ratio,
+    saturatedFat: total.saturatedFat * ratio,
+    transFat: total.transFat * ratio,
+    carbs: total.carbs * ratio,
+    sugar: total.sugar * ratio,
+    sodium: total.sodium * ratio,
+  };
+}
+
+function scaleNutritionTotal(total, ratio) {
+  return {
+    weight: total.weight * ratio,
+    ...scaleNutrition(total, ratio),
+  };
+}
+
+function formatNutritionValue(value) {
+  const number = Number(value || 0);
+  if (number >= 100) return String(Math.round(number));
+  if (number >= 10) return String(Math.round(number * 10) / 10);
+  return String(Math.round(number * 10) / 10);
 }
 
 function renderNotes(recipe) {
@@ -728,6 +1033,8 @@ function bindEvents() {
   });
 }
 
+configureCuisineOptions();
+removeSourceSections();
 bindEvents();
 
 async function init() {
