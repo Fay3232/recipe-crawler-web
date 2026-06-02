@@ -21,7 +21,6 @@ const state = {
   activeCategory: "全部",
   activeDifficulty: "全部",
   activeTab: "content",
-  servingCount: 2,
   compact: false,
   favorites: new Set(JSON.parse(localStorage.getItem("recipeFavorites") || "[]")),
   notes: JSON.parse(localStorage.getItem("recipeNotes") || "{}"),
@@ -67,7 +66,6 @@ const elements = {
   sortSelect: $("#sortSelect"),
   typeSelect: $("#typeSelect"),
   cuisineSelect: $("#cuisineSelect"),
-  servingSelect: $("#servingSelect"),
   favoriteOnly: $("#favoriteOnly"),
   structuredOnly: $("#structuredOnly"),
   crawlBanner: $("#crawlBanner"),
@@ -79,7 +77,6 @@ const elements = {
   tipCard: $("#tipCard"),
   microTip: $("#microTip"),
   saveButton: $("#saveButton"),
-  servingCount: $("#servingCount"),
   nutritionGrid: $("#nutritionGrid"),
   noteArea: $("#noteArea"),
   noteStatus: $("#noteStatus"),
@@ -333,7 +330,6 @@ function buildStatus(payload) {
 function setRecipes(items, statusText) {
   state.allItems = items.map(normalizeRecipe);
   state.selectedId = state.allItems[0]?.id || "";
-  state.servingCount = getBaseServing(selectedRecipe()) || 2;
   state.currentPage = 1;
   elements.resultStatus.textContent = statusText;
   applyFilters();
@@ -378,22 +374,6 @@ function passesTime(recipe) {
   });
 }
 
-function passesServing(recipe) {
-  if (!elements.servingSelect) return true;
-  const value = elements.servingSelect.value;
-  if (isAllFilter(value)) return true;
-  const base = getBaseServing(recipe);
-  if (value === "1") return base <= 1;
-  if (value === "2") return base >= 2 && base <= 3;
-  return base >= 4;
-}
-
-function getBaseServing(recipe) {
-  const match = String(recipe?.servings || "").match(/\d+/);
-  if (match) return Number(match[0]);
-  return 2;
-}
-
 function applyFilters(options = {}) {
   const resetPage = options.resetPage !== false;
   const typeValue = elements.typeSelect.value;
@@ -414,7 +394,6 @@ function applyFilters(options = {}) {
       matchesCuisine &&
       matchesDifficulty &&
       passesTime(recipe) &&
-      passesServing(recipe) &&
       (!structuredOnly || hasStructure) &&
       (!favoriteOnly || isFavorite)
     );
@@ -477,7 +456,6 @@ function renderResults() {
             <span class="recipe-meta">
               <span>${escapeHtml(recipe.source)}</span>
               <span>${escapeHtml(recipe.time || "時間未標示")}</span>
-              <span>${escapeHtml(recipe.servings || "份量未標示")}</span>
             </span>
             <p>${escapeHtml(recipe.description)}</p>
           </span>
@@ -502,7 +480,6 @@ function renderResults() {
   $$(".result-card").forEach((card) => {
     card.addEventListener("click", () => {
       state.selectedId = card.dataset.id;
-      state.servingCount = getBaseServing(selectedRecipe()) || 2;
       renderResults();
       renderDetail();
     });
@@ -527,7 +504,6 @@ function goToPage(page) {
   state.currentPage = clampPage(page);
   const currentItems = pageItems();
   state.selectedId = currentItems[0]?.id || state.visibleItems[0]?.id || "";
-  state.servingCount = getBaseServing(selectedRecipe()) || 2;
   renderResults();
   renderDetail();
 }
@@ -565,13 +541,11 @@ function renderDetail() {
   elements.detailMeta.innerHTML = [
     metaPill("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71", recipe.source),
     metaPill("M12 6v6l4 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z", recipe.time || "時間未標示"),
-    metaPill("M16 21v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", recipe.servings || "份量未標示"),
     `<span class="simple-pill">${escapeHtml(recipe.difficulty)}</span>`,
   ].join("");
 
   elements.saveButton.classList.toggle("save", true);
   elements.saveButton.innerHTML = `${iconSvg("M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z")}${state.favorites.has(recipe.id) ? "已收藏" : "收藏"}`;
-  elements.servingCount.textContent = state.servingCount;
   renderIngredients(recipe);
   renderSteps(recipe);
   renderNutrition(recipe);
@@ -587,62 +561,11 @@ function renderIngredients(recipe) {
   if (!recipe.ingredients.length) {
     elements.ingredientList.innerHTML = `<li>此頁未抽取到明確材料，請打開來源確認。</li>`;
   } else {
-    const base = getBaseServing(recipe) || 2;
-    const ratio = state.servingCount / base;
     elements.ingredientList.innerHTML = recipe.ingredients
-      .map((item) => `<li>${escapeHtml(scaleIngredient(item, ratio))}</li>`)
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
       .join("");
   }
   elements.tipCard.innerHTML = `<strong>小秘訣</strong>${escapeHtml(buildTip(recipe))}`;
-}
-
-function scaleIngredient(text, ratio) {
-  if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.05) return text;
-  const units = "(?:大匙|小匙|茶匙|湯匙|公克|毫升|顆|個|支|根|瓣|片|匙|杯|碗|克|包|罐|份|粒|小粒|節|把|朵|條|g|ml)";
-  const number = String.raw`\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?|半`;
-  const quantityPattern = new RegExp(`(${number})(?:\\s*([~～－-])\\s*(${number}))?(\\s*${units})`, "gi");
-  return text.replace(quantityPattern, (match, start, separator, end, unit) => {
-    const scaledStart = formatScaledQuantity(start, ratio);
-    if (!separator || !end) return `${scaledStart}${unit}`;
-    return `${scaledStart}${separator}${formatScaledQuantity(end, ratio)}${unit}`;
-  });
-}
-
-function formatScaledQuantity(value, ratio) {
-  const number = parseQuantityValue(value) * ratio;
-  return formatQuantityNumber(number, String(value).includes("/") || value === "半");
-}
-
-function parseQuantityValue(value) {
-  const text = String(value || "").trim();
-  if (text === "半") return 0.5;
-  if (text.includes("/")) {
-    const [top, bottom] = text.split("/").map(Number);
-    if (Number.isFinite(top) && Number.isFinite(bottom) && bottom !== 0) return top / bottom;
-  }
-  const number = Number(text);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function formatQuantityNumber(value, preferFraction = false) {
-  if (!Number.isFinite(value)) return "";
-  const roundedInteger = Math.round(value);
-  if (Math.abs(value - roundedInteger) < 0.01) return String(roundedInteger);
-
-  const whole = Math.floor(value);
-  const fraction = value - whole;
-  const candidates = [2, 3, 4, 5, 6, 8, 10, 12, 16];
-  for (const denominator of candidates) {
-    const numerator = Math.round(fraction * denominator);
-    if (!numerator || numerator >= denominator) continue;
-    if (Math.abs(fraction - numerator / denominator) < 0.015) {
-      if (!whole) return `${numerator}/${denominator}`;
-      if (preferFraction && whole <= 2) return `${whole}又${numerator}/${denominator}`;
-      break;
-    }
-  }
-
-  return String(Math.round(value * 10) / 10).replace(/\.0$/, "");
 }
 
 function buildTip(recipe) {
@@ -691,7 +614,7 @@ function renderCrawlSteps(recipe) {
     "開始處理來源",
     recipe.sourceUrl ? "抓取網頁內容" : "讀取本機資料",
     sourceType,
-    recipe.ingredients.length ? "擷取材料與份量" : "材料需人工確認",
+    recipe.ingredients.length ? "擷取材料內容" : "材料需人工確認",
     recipe.steps.length ? "擷取料理步驟" : "做法需人工確認",
     warning,
   ]
@@ -770,9 +693,6 @@ function renderNutrition(recipe) {
 }
 
 function estimateNutrition(recipe) {
-  const baseServings = getBaseServing(recipe) || 2;
-  const servings = Math.max(1, Number(state.servingCount || baseServings));
-  const ratio = servings / baseServings;
   const total = {
     weight: 0,
     calories: 0,
@@ -797,12 +717,12 @@ function estimateNutrition(recipe) {
     total.calories = Math.max(total.calories, 180 + recipe.ingredients.length * 45);
   }
 
-  const scaledTotal = scaleNutritionTotal(total, ratio);
+  const scaledTotal = scaleNutritionTotal(total, 1);
   const per100g = scaleNutrition(scaledTotal, 100 / Math.max(scaledTotal.weight, 1));
   return {
     total: scaledTotal,
     per100g,
-    note: "依目前材料文字與份量調整後的整份料理估算，實際數值會因品牌、份量與烹調方式不同而變動。",
+    note: "依目前材料文字估算整份料理總量，實際數值會因品牌、用量與烹調方式不同而變動。",
   };
 }
 
@@ -844,7 +764,7 @@ function analyzeNutrition(nutrition) {
   }
 
   if (!suggestions.length) {
-    suggestions.push("營養分布相對均衡，維持適量份量並搭配蔬菜即可。");
+    suggestions.push("營養分布相對均衡，搭配蔬菜與主食即可。");
   }
 
   const grade = score >= 82 ? "A" : score >= 68 ? "B" : score >= 52 ? "C" : "D";
@@ -1085,11 +1005,10 @@ function bindEvents() {
     state.activeDifficulty = "全部";
     elements.typeSelect.value = "全部";
     elements.cuisineSelect.value = "全部";
-    if (elements.servingSelect) elements.servingSelect.value = "全部";
     elements.favoriteOnly.checked = false;
     elements.structuredOnly.checked = false;
     $$('input[name="time"]').forEach((input) => {
-      input.checked = input.value === "30";
+      input.checked = false;
     });
     $$("#categoryChips .chip").forEach((button) => button.classList.toggle("active", button.dataset.value === "全部"));
     $$("#difficultyControl button").forEach((button) => button.classList.toggle("active", button.dataset.value === "全部"));
@@ -1097,7 +1016,7 @@ function bindEvents() {
   });
 
   ["change", "input"].forEach((eventName) => {
-    [elements.typeSelect, elements.cuisineSelect, elements.servingSelect, elements.favoriteOnly, elements.structuredOnly, elements.sortSelect].filter(Boolean).forEach((control) =>
+    [elements.typeSelect, elements.cuisineSelect, elements.favoriteOnly, elements.structuredOnly, elements.sortSelect].filter(Boolean).forEach((control) =>
       control.addEventListener(eventName, applyFilters),
     );
   });
@@ -1129,15 +1048,6 @@ function bindEvents() {
   elements.nextPage?.addEventListener("click", () => goToPage(state.currentPage + 1));
 
   elements.saveButton.addEventListener("click", () => toggleFavorite());
-  $("#increaseServing").addEventListener("click", () => {
-    state.servingCount = Math.min(12, state.servingCount + 1);
-    renderDetail();
-  });
-  $("#decreaseServing").addEventListener("click", () => {
-    state.servingCount = Math.max(1, state.servingCount - 1);
-    renderDetail();
-  });
-
   $$(".tabs button").forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.tab)));
 
   $("#saveNoteButton").addEventListener("click", () => {
@@ -1182,7 +1092,20 @@ configureCuisineOptions();
 removeSourceSections();
 bindEvents();
 
+function resetDefaultFilters() {
+  $$('input[name="time"]').forEach((input) => {
+    input.checked = false;
+  });
+  if (elements.typeSelect) elements.typeSelect.value = "全部";
+  if (elements.cuisineSelect) elements.cuisineSelect.value = "全部";
+  $$("#categoryChips .chip").forEach((button) => button.classList.toggle("active", button.dataset.value === "全部"));
+  $$("#difficultyControl button").forEach((button) => button.classList.toggle("active", button.dataset.value === "全部"));
+  state.activeCategory = "全部";
+  state.activeDifficulty = "全部";
+}
+
 async function init() {
+  resetDefaultFilters();
   await loadUserState();
   await fetchCrawlStatus();
   await loadInitialRecipes();

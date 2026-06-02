@@ -82,7 +82,7 @@
           <fieldset class="filter-block">
             <legend>烹調時間</legend>
             <label class="check-row"><input type="checkbox" name="time" value="15" />15 分鐘內</label>
-            <label class="check-row"><input type="checkbox" name="time" value="30" checked />15-30 分鐘</label>
+            <label class="check-row"><input type="checkbox" name="time" value="30" />15-30 分鐘</label>
             <label class="check-row"><input type="checkbox" name="time" value="60" />30-60 分鐘</label>
             <label class="check-row"><input type="checkbox" name="time" value="long" />60 分鐘以上</label>
           </fieldset>
@@ -177,12 +177,6 @@
                 <section class="ingredients">
                   <div class="section-title">
                     <h3>材料</h3>
-                    <div class="stepper" aria-label="份量調整">
-                      <button id="decreaseServing" type="button">−</button>
-                      <span id="servingCount">2</span>
-                      <button id="increaseServing" type="button">＋</button>
-                      <small>份量</small>
-                    </div>
                   </div>
                   <ul id="ingredientList"></ul>
                   <aside class="tip-card" id="tipCard"></aside>

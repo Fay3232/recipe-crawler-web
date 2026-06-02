@@ -745,37 +745,6 @@ h3 {
   font-weight: 900;
 }
 
-.stepper {
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  overflow: hidden;
-  background: #fff;
-}
-
-.stepper button {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  background: #f7faf9;
-  color: var(--green);
-  font-weight: 900;
-}
-
-.stepper span {
-  min-width: 34px;
-  text-align: center;
-  font-weight: 900;
-}
-
-.stepper small {
-  padding: 0 9px;
-  color: var(--muted);
-  font-weight: 700;
-}
-
 #ingredientList {
   margin: 0;
   padding-left: 21px;
