@@ -682,18 +682,17 @@ input[type="checkbox"] {
 }
 
 .content-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(460px, 1.2fr);
+  display: block;
   min-height: 100%;
 }
 
 .ingredients,
 .steps {
-  padding: 30px 32px;
+  padding: 34px 40px;
 }
 
 .steps {
-  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
 }
 
 .section-title {
@@ -705,7 +704,8 @@ input[type="checkbox"] {
 
 h3 {
   margin: 0 0 18px;
-  font-size: 18px;
+  font-size: 22px;
+  font-weight: 900;
 }
 
 .stepper {
@@ -743,7 +743,11 @@ h3 {
   margin: 0;
   padding-left: 21px;
   display: grid;
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px 38px;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.75;
 }
 
 #ingredientList li {
@@ -756,27 +760,31 @@ h3 {
   list-style: none;
   counter-reset: steps;
   display: grid;
-  gap: 18px;
+  gap: 20px;
+  max-width: 1080px;
 }
 
 .steps li {
   counter-increment: steps;
   display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: 12px;
+  grid-template-columns: 34px 1fr;
+  gap: 14px;
   align-items: start;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.75;
 }
 
 .steps li::before {
   content: counter(steps);
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: var(--green);
   color: #fff;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
 }
 
@@ -900,6 +908,73 @@ h3 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.nutrition-analysis {
+  max-width: 620px;
+  margin-top: 16px;
+  padding: 18px 20px;
+  border: 1px solid #cfe7d8;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #eef8f1, #f8fbfa);
+}
+
+.nutrition-analysis > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: #244536;
+  font-weight: 900;
+}
+
+.analysis-label {
+  color: var(--green);
+}
+
+.grade-badge {
+  min-width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.grade-A {
+  background: #128245;
+}
+
+.grade-B {
+  background: #3e9a46;
+}
+
+.grade-C {
+  background: #c78111;
+}
+
+.grade-D {
+  background: #d82f2f;
+}
+
+.analysis-suggestion-title {
+  display: block;
+  margin-top: 14px;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.nutrition-analysis ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  color: #3c5149;
+  font-weight: 700;
+  line-height: 1.65;
 }
 
 #noteArea {

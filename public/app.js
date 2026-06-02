@@ -630,41 +630,32 @@ function renderCompareList() {
 
 function renderNutrition(recipe) {
   const nutrition = estimateNutrition(recipe);
+  const analysis = analyzeNutrition(nutrition);
   const rows = [
-    ["熱量", "大卡", nutrition.perServing.calories, nutrition.per100g.calories],
-    ["蛋白質", "公克", nutrition.perServing.protein, nutrition.per100g.protein],
-    ["脂肪", "公克", nutrition.perServing.fat, nutrition.per100g.fat],
-    ["飽和脂肪", "公克", nutrition.perServing.saturatedFat, nutrition.per100g.saturatedFat],
-    ["反式脂肪", "公克", nutrition.perServing.transFat, nutrition.per100g.transFat],
-    ["碳水化合物", "公克", nutrition.perServing.carbs, nutrition.per100g.carbs],
-    ["糖", "公克", nutrition.perServing.sugar, nutrition.per100g.sugar],
-    ["鈉", "毫克", nutrition.perServing.sodium, nutrition.per100g.sodium],
+    ["熱量", nutrition.total.calories, "大卡"],
+    ["蛋白質", nutrition.total.protein, "公克"],
+    ["脂肪", nutrition.total.fat, "公克"],
+    ["飽和脂肪", nutrition.total.saturatedFat, "公克"],
+    ["反式脂肪", nutrition.total.transFat, "公克"],
+    ["碳水化合物", nutrition.total.carbs, "公克"],
+    ["糖", nutrition.total.sugar, "公克"],
+    ["鈉", nutrition.total.sodium, "毫克"],
   ];
   elements.nutritionGrid.innerHTML = `
     <div class="nutrition-panel">
       <table class="nutrition-table">
-        <caption>營養標示</caption>
+        <caption>營養素總量估算</caption>
         <tbody>
-          <tr>
-            <th scope="row">每一份量</th>
-            <td colspan="2">${nutrition.servingWeight} 公克（或毫升）</td>
-          </tr>
-          <tr>
-            <th scope="row">本包裝含</th>
-            <td colspan="2">${nutrition.servingCount} 份</td>
-          </tr>
           <tr class="nutrition-head">
-            <th></th>
-            <th>每份</th>
-            <th>每 100 公克</th>
+            <th>營養素</th>
+            <th>整份總量</th>
           </tr>
           ${rows
             .map(
-              ([name, unit, perServing, per100g]) => `
+              ([name, value, unit]) => `
                 <tr>
                   <th scope="row">${name}</th>
-                  <td>${formatNutritionValue(perServing)} ${unit}</td>
-                  <td>${formatNutritionValue(per100g)} ${unit}</td>
+                  <td>${formatNutritionValue(value)} ${unit}</td>
                 </tr>
               `,
             )
@@ -672,6 +663,17 @@ function renderNutrition(recipe) {
         </tbody>
       </table>
       <p class="nutrition-note">${escapeHtml(nutrition.note)}</p>
+      <section class="nutrition-analysis" aria-label="營養分析">
+        <div>
+          <span class="analysis-label">營養等級</span>
+          <strong class="grade-badge grade-${analysis.grade}">${analysis.grade}</strong>
+          <span>${escapeHtml(analysis.summary)}</span>
+        </div>
+        <strong class="analysis-suggestion-title">建議</strong>
+        <ul>
+          ${analysis.suggestions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </section>
     </div>
   `;
 }
@@ -705,15 +707,64 @@ function estimateNutrition(recipe) {
   }
 
   const scaledTotal = scaleNutritionTotal(total, ratio);
-  const perServing = divideNutrition(scaledTotal, servings);
   const per100g = scaleNutrition(scaledTotal, 100 / Math.max(scaledTotal.weight, 1));
   return {
-    servingCount: servings,
-    servingWeight: Math.max(1, Math.round(scaledTotal.weight / servings)),
-    perServing,
+    total: scaledTotal,
     per100g,
-    note: "依食材文字與常見營養資料自動估算，實際數值會因品牌、份量與烹調方式不同而變動。",
+    note: "依目前材料文字與份量調整後的整份料理估算，實際數值會因品牌、份量與烹調方式不同而變動。",
   };
+}
+
+function analyzeNutrition(nutrition) {
+  const per100g = nutrition.per100g;
+  const total = nutrition.total;
+  let score = 86;
+  const suggestions = [];
+
+  if (per100g.sodium >= 700) {
+    score -= 18;
+    suggestions.push("鈉含量偏高，可減少醬油、鹽或高鈉調味料，並搭配大量蔬菜。");
+  } else if (per100g.sodium >= 400) {
+    score -= 8;
+    suggestions.push("鈉含量中等偏高，調味料建議分次加入、邊試味道邊調整。");
+  }
+
+  if (per100g.saturatedFat >= 6) {
+    score -= 14;
+    suggestions.push("飽和脂肪偏高，可改用較瘦的肉、減少奶油或油脂用量。");
+  } else if (per100g.fat >= 12) {
+    score -= 7;
+    suggestions.push("脂肪量較高，烹調時可瀝掉多餘油脂或減少煎炸。");
+  }
+
+  if (per100g.sugar >= 12) {
+    score -= 10;
+    suggestions.push("糖量偏高，可先減少糖、味醂或甜醬，最後再微調甜度。");
+  }
+
+  if (per100g.calories >= 240) {
+    score -= 8;
+    suggestions.push("熱量密度較高，建議搭配清爽湯品或燙青菜平衡一餐。");
+  }
+
+  if (total.protein >= 25) {
+    score += 6;
+    suggestions.push("蛋白質含量不錯，適合作為正餐主菜。");
+  }
+
+  if (!suggestions.length) {
+    suggestions.push("營養分布相對均衡，維持適量份量並搭配蔬菜即可。");
+  }
+
+  const grade = score >= 82 ? "A" : score >= 68 ? "B" : score >= 52 ? "C" : "D";
+  const summary = {
+    A: "整體均衡",
+    B: "適合日常食用",
+    C: "部分營養素需留意",
+    D: "建議調整食材或調味",
+  }[grade];
+
+  return { grade, summary, suggestions: suggestions.slice(0, 4) };
 }
 
 function estimateIngredientNutrition(line = "") {
