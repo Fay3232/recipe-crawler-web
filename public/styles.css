@@ -743,8 +743,9 @@ h3 {
   margin: 0;
   padding-left: 21px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px 38px;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 900px;
   font-size: 18px;
   font-weight: 800;
   line-height: 1.75;

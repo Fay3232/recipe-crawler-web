@@ -548,10 +548,51 @@ function renderIngredients(recipe) {
 
 function scaleIngredient(text, ratio) {
   if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.05) return text;
-  return text.replace(/(\d+(?:\.\d+)?)(?=\s*(顆|個|支|根|瓣|片|大匙|小匙|匙|杯|碗|克|g|ml|毫升|公克|包|罐|份))/gi, (match) => {
-    const scaled = Number(match) * ratio;
-    return scaled % 1 === 0 ? String(scaled) : scaled.toFixed(1).replace(/\.0$/, "");
+  const units = "(?:大匙|小匙|茶匙|湯匙|公克|毫升|顆|個|支|根|瓣|片|匙|杯|碗|克|包|罐|份|粒|小粒|節|把|朵|條|g|ml)";
+  const number = String.raw`\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?|半`;
+  const quantityPattern = new RegExp(`(${number})(?:\\s*([~～－-])\\s*(${number}))?(\\s*${units})`, "gi");
+  return text.replace(quantityPattern, (match, start, separator, end, unit) => {
+    const scaledStart = formatScaledQuantity(start, ratio);
+    if (!separator || !end) return `${scaledStart}${unit}`;
+    return `${scaledStart}${separator}${formatScaledQuantity(end, ratio)}${unit}`;
   });
+}
+
+function formatScaledQuantity(value, ratio) {
+  const number = parseQuantityValue(value) * ratio;
+  return formatQuantityNumber(number, String(value).includes("/") || value === "半");
+}
+
+function parseQuantityValue(value) {
+  const text = String(value || "").trim();
+  if (text === "半") return 0.5;
+  if (text.includes("/")) {
+    const [top, bottom] = text.split("/").map(Number);
+    if (Number.isFinite(top) && Number.isFinite(bottom) && bottom !== 0) return top / bottom;
+  }
+  const number = Number(text);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatQuantityNumber(value, preferFraction = false) {
+  if (!Number.isFinite(value)) return "";
+  const roundedInteger = Math.round(value);
+  if (Math.abs(value - roundedInteger) < 0.01) return String(roundedInteger);
+
+  const whole = Math.floor(value);
+  const fraction = value - whole;
+  const candidates = [2, 3, 4, 5, 6, 8, 10, 12, 16];
+  for (const denominator of candidates) {
+    const numerator = Math.round(fraction * denominator);
+    if (!numerator || numerator >= denominator) continue;
+    if (Math.abs(fraction - numerator / denominator) < 0.015) {
+      if (!whole) return `${numerator}/${denominator}`;
+      if (preferFraction && whole <= 2) return `${whole}又${numerator}/${denominator}`;
+      break;
+    }
+  }
+
+  return String(Math.round(value * 10) / 10).replace(/\.0$/, "");
 }
 
 function buildTip(recipe) {
