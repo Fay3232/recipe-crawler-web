@@ -25,6 +25,7 @@ const state = {
   favorites: new Set(JSON.parse(localStorage.getItem("recipeFavorites") || "[]")),
   notes: JSON.parse(localStorage.getItem("recipeNotes") || "{}"),
   lastQuery: "",
+  sourceTotal: 0,
   currentPage: 1,
   pageSize: 20,
 };
@@ -298,7 +299,7 @@ async function loadInitialRecipes() {
   const response = await fetch("/api/search");
   const payload = await response.json();
   renderCrawlPanel(payload.crawl);
-  setRecipes(payload.items || [], payload.warning || buildStatus(payload));
+  setRecipes(payload.items || [], payload.warning || buildStatus(payload), payload);
 }
 
 async function performSearch(query) {
@@ -310,7 +311,7 @@ async function performSearch(query) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "搜尋失敗");
     renderCrawlPanel(payload.crawl);
-    setRecipes(payload.items || [], payload.warning || buildStatus(payload));
+    setRecipes(payload.items || [], payload.warning || buildStatus(payload), payload);
     if (payload.warning) showToast(payload.warning);
   } catch (error) {
     showToast(error.message || "搜尋時發生錯誤");
@@ -327,8 +328,10 @@ function buildStatus(payload) {
   return "結果已更新。";
 }
 
-function setRecipes(items, statusText) {
+function setRecipes(items, statusText, payload = {}) {
   state.allItems = items.map(normalizeRecipe);
+  state.sourceTotal = Number(payload.crawl?.itemCount || items.length || 0);
+  state.lastQuery = String(payload.query || "").trim();
   state.selectedId = state.allItems[0]?.id || "";
   state.currentPage = 1;
   elements.resultStatus.textContent = statusText;
@@ -433,10 +436,40 @@ function sortRecipes(items) {
   return sorted;
 }
 
+function activeFilterLabels() {
+  const labels = [];
+  if (!isAllFilter(elements.typeSelect.value)) labels.push(elements.typeSelect.options[elements.typeSelect.selectedIndex]?.text || elements.typeSelect.value);
+  if (!isAllFilter(elements.cuisineSelect.value)) labels.push(elements.cuisineSelect.options[elements.cuisineSelect.selectedIndex]?.text || elements.cuisineSelect.value);
+  if (!isAllFilter(state.activeCategory)) labels.push(state.activeCategory);
+  if (!isAllFilter(state.activeDifficulty)) labels.push(state.activeDifficulty);
+  const times = $$('input[name="time"]:checked').map((input) => input.parentElement?.textContent?.trim()).filter(Boolean);
+  labels.push(...times);
+  if (elements.favoriteOnly.checked) labels.push("只看收藏");
+  if (elements.structuredOnly.checked) labels.push("只看可抽取材料步驟");
+  return labels;
+}
+
+function renderResultStatus() {
+  const total = state.sourceTotal || state.allItems.length || state.visibleItems.length;
+  const filters = activeFilterLabels();
+  const hasQuery = Boolean(state.lastQuery);
+  if (hasQuery) {
+    const filterText = filters.length ? `，並套用「${filters.join("、")}」篩選` : "";
+    elements.resultStatus.textContent = `目前搜尋「${state.lastQuery}」找到 ${state.visibleItems.length} 筆${filterText}；來源清單共有 ${total} 筆。清空搜尋即可查看全部。`;
+    return;
+  }
+  if (filters.length) {
+    elements.resultStatus.textContent = `目前套用「${filters.join("、")}」篩選，顯示 ${state.visibleItems.length} 筆；來源清單共有 ${total} 筆。`;
+    return;
+  }
+  elements.resultStatus.textContent = `已載入來源清單索引，共 ${total} 筆整理結果。`;
+}
+
 function renderResults() {
   const pages = totalPages();
   const currentItems = pageItems();
   elements.resultTitle.textContent = `找到 ${state.visibleItems.length} 個結果`;
+  renderResultStatus();
   if (!state.visibleItems.length) {
     elements.resultList.innerHTML = `<div class="empty-detail"><p>沒有符合篩選的結果。</p></div>`;
     renderPagination();
@@ -967,6 +1000,7 @@ async function fetchCrawlStatus() {
 }
 
 async function runContentUpdateNow() {
+  resetDefaultFilters();
   const ticker = startCrawlTicker();
   try {
     const response = await fetch("/api/content/update", { method: "POST" });
@@ -989,6 +1023,7 @@ async function pollCrawlUntilIdle() {
     window.setTimeout(pollCrawlUntilIdle, 2500);
     return;
   }
+  resetDefaultFilters();
   await loadInitialRecipes();
 }
 
@@ -1001,18 +1036,10 @@ function bindEvents() {
   $("#crawlButton").addEventListener("click", runContentUpdateNow);
   $("#applyFilters").addEventListener("click", applyFilters);
   $("#clearFilters").addEventListener("click", () => {
-    state.activeCategory = "全部";
-    state.activeDifficulty = "全部";
-    elements.typeSelect.value = "全部";
-    elements.cuisineSelect.value = "全部";
-    elements.favoriteOnly.checked = false;
-    elements.structuredOnly.checked = false;
-    $$('input[name="time"]').forEach((input) => {
-      input.checked = false;
-    });
-    $$("#categoryChips .chip").forEach((button) => button.classList.toggle("active", button.dataset.value === "全部"));
-    $$("#difficultyControl button").forEach((button) => button.classList.toggle("active", button.dataset.value === "全部"));
-    applyFilters();
+    const hadSearch = Boolean(state.lastQuery || elements.queryInput.value.trim());
+    resetDefaultFilters();
+    if (hadSearch) loadInitialRecipes();
+    else applyFilters();
   });
 
   ["change", "input"].forEach((eventName) => {
@@ -1093,6 +1120,8 @@ removeSourceSections();
 bindEvents();
 
 function resetDefaultFilters() {
+  state.lastQuery = "";
+  if (elements.queryInput) elements.queryInput.value = "";
   $$('input[name="time"]').forEach((input) => {
     input.checked = false;
   });
