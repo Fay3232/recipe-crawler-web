@@ -729,6 +729,401 @@ function inferSteps(html, text) {
   return dedupe(stepish).slice(0, 10);
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripNonContentHtml(html = "") {
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ")
+    .replace(/<(?:header|nav|footer|aside|form)\b[\s\S]*?<\/(?:header|nav|footer|aside|form)>/gi, " ");
+}
+
+function htmlBlockByTag(html, tag) {
+  const open = new RegExp(`<${tag}\\b[^>]*>`, "i").exec(html);
+  if (!open) return "";
+  const closeToken = `</${tag}>`;
+  const close = html.toLowerCase().lastIndexOf(closeToken);
+  if (close <= open.index) return "";
+  return html.slice(open.index, close + closeToken.length);
+}
+
+function scoreContentBlock(block, attrs = "") {
+  const text = stripTags(block);
+  if (text.length < 120) return 0;
+  const markers = (text.match(/材料|食材|調味料|做法|作法|步驟|小撇步|ingredients?|instructions?|directions?|method/gi) || []).length;
+  const attrBonus = /entry-content|post-content|article-content|single-content|recipe|content|main/i.test(attrs) ? 400 : 0;
+  const noisePenalty = (text.match(/留言|搜尋|登入|註冊|Copyright|相關文章|熱門文章|最新文章|tasty-note|每天都有新食譜/gi) || []).length * 80;
+  return Math.min(text.length, 5000) + markers * 350 + attrBonus - noisePenalty;
+}
+
+function getRecipeScopedHtml(html) {
+  const stripped = stripNonContentHtml(html);
+  const candidates = [];
+  for (const tag of ["article", "main"]) {
+    const block = htmlBlockByTag(stripped, tag);
+    if (block) candidates.push({ block, score: scoreContentBlock(block, tag) + 250 });
+  }
+
+  const blockRegex = /<(div|section|article|main)\b([^>]*)>([\s\S]{0,90000}?)<\/\1>/gi;
+  let match;
+  while ((match = blockRegex.exec(stripped))) {
+    const attrs = match[2] || "";
+    if (!/entry-content|post-content|article-content|single-content|recipe|content|main/i.test(attrs)) continue;
+    const block = match[0];
+    candidates.push({ block, score: scoreContentBlock(block, attrs) });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.score > 300 ? candidates[0].block : stripped;
+}
+
+function textWithBreaks(html = "") {
+  return decodeEntities(
+    stripNonContentHtml(html)
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(?:p|li|tr|td|th|h[1-6]|div|section|article|ol|ul|table|dl|dt|dd)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[ \t\f\v]+/g, " ")
+      .replace(/\r/g, "\n")
+      .replace(/\n\s+/g, "\n")
+      .replace(/\n{2,}/g, "\n")
+      .trim(),
+  );
+}
+
+function normalizeRecipeLine(value = "") {
+  return stripTags(value)
+    .replace(/\bImage:\s*/gi, "")
+    .replace(/^\s*(?:[-*•]|步驟|step)?\s*\d{1,2}[.)、．]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isNoiseLine(line = "") {
+  const text = normalizeRecipeLine(line);
+  if (!text) return true;
+  if (/^(more|image|profile|review)$/i.test(text)) return true;
+  if (/^[(（].*人份.*[)）]$/.test(text)) return true;
+  if (/(你需要準備|需要準備的食材|tasty-note|每天都有新食譜|日本男子的日式家庭料理|投稿日|更新日|Image Tags|相關文章|熱門文章|最新文章|推薦文章|搜尋|留言|收藏|分享|廣告|登入|註冊|隱私|服務條款|Copyright|facebook|instagram|email|menu|sidebar|breadcrumb)/i.test(text)) return true;
+  if ((text.match(/料理/g) || []).length >= 4) return true;
+  if (/\b\d{4}[-/年]\d{1,2}[-/月]\d{0,2}/.test(text)) return true;
+  return false;
+}
+
+function hasCookingVerb(line = "") {
+  return /(加入|放入|攪拌|拌炒|翻炒|拌|煮|炒|烤|蒸|切|備用|調味|倒入|煎|燉|汆|燙|炸|醃|去皮|切絲|加熱|沸騰|轉小火|關火|收汁|撈除|熱鍋|盛起|淋入|燜|悶|mix|cook|bake|boil|fry|steam)/i.test(line);
+}
+
+function isLikelyQuantityText(line = "") {
+  const text = normalizeRecipeLine(line);
+  return /(?:\d+(?:[./〜~\-]\d+)?|[一二三四五六七八九十半]+)\s*(?:g|kg|ml|cc|大匙|小匙|茶匙|湯匙|匙|杯|碗|顆|粒|片|根|節|瓣|把|支|朵|包|罐|克|公克|公斤|斤|兩|人份|份)/i.test(text) ||
+    /(?:適量|少許|各\s*(?:\d|[一二三四五六七八九十半]+)|依喜好|q\.?s\.?)/i.test(text);
+}
+
+function isLikelyIngredientName(line = "") {
+  const text = normalizeRecipeLine(line);
+  if (isNoiseLine(text)) return false;
+  if (text.length < 1 || text.length > 42) return false;
+  if (hasCookingVerb(text)) return false;
+  if (/[。！？!?]/.test(text)) return false;
+  return /[\p{Script=Han}A-Za-z]/u.test(text);
+}
+
+function isLikelyIngredientLine(line = "") {
+  const text = normalizeRecipeLine(line);
+  if (isNoiseLine(text)) return false;
+  if (text.length < 2 || text.length > 90) return false;
+  if (!isLikelyQuantityText(text)) return false;
+  if (hasCookingVerb(text)) return false;
+  if (/[。！？!?]/.test(text)) return false;
+  return /[\p{Script=Han}A-Za-z]/u.test(text);
+}
+
+function ingredientPair(name, quantity) {
+  const left = normalizeRecipeLine(name);
+  const right = normalizeRecipeLine(quantity);
+  if (isLikelyIngredientName(left) && isLikelyQuantityText(right)) return `${left} ${right}`;
+  if (isLikelyQuantityText(left) && isLikelyIngredientName(right)) return `${right} ${left}`;
+  if (isLikelyIngredientLine(left)) return left;
+  if (isLikelyIngredientLine(right)) return right;
+  return "";
+}
+
+function extractIngredientPairsFromCells(cells) {
+  const output = [];
+  for (let index = 0; index < cells.length - 1; index += 2) {
+    const pair = ingredientPair(cells[index], cells[index + 1]);
+    if (pair) output.push(pair);
+  }
+  if (!output.length && cells.length === 2) {
+    const pair = ingredientPair(cells[0], cells[1]);
+    if (pair) output.push(pair);
+  }
+  return output;
+}
+
+function extractListBlockIngredients(html) {
+  const output = [];
+  const listRegex = /<div\b[^>]*class=["'][^"']*\blist\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi;
+  let listMatch;
+  while ((listMatch = listRegex.exec(html))) {
+    const cells = textWithBreaks(listMatch[1])
+      .split(/\n+/)
+      .map(normalizeRecipeLine)
+      .filter(Boolean)
+      .filter((line) => !/^(材料|食材|調味料)$/i.test(line));
+    output.push(...extractIngredientPairsFromCells(cells));
+  }
+
+  return output;
+}
+
+function pairIngredientLines(lines) {
+  const output = [];
+  const cleaned = lines
+    .map(normalizeRecipeLine)
+    .filter(Boolean)
+    .filter((line) => !isNoiseLine(line))
+    .filter((line) => !/^(材料|食材|調味料|調味|配料)$/i.test(line));
+
+  for (let index = 0; index < cleaned.length; index += 1) {
+    const current = cleaned[index];
+    const next = cleaned[index + 1];
+    const pair = ingredientPair(current, next);
+    if (pair) {
+      output.push(pair);
+      index += 1;
+    } else if (isLikelyIngredientLine(current)) {
+      output.push(current);
+    }
+  }
+  return output;
+}
+
+function extractIngredientSectionPairs(html) {
+  const output = [];
+  const sectionRegex = /<section\b[^>]*class=["'][^"']*(?:l-single-meet|ingredient|material|recipeIngredient)[^"']*["'][^>]*>([\s\S]*?)<\/section>/gi;
+  let sectionMatch;
+  while ((sectionMatch = sectionRegex.exec(html))) {
+    output.push(...pairIngredientLines(textWithBreaks(sectionMatch[1]).split(/\n+/)));
+  }
+  return output;
+}
+
+function ingredientSectionLines(text) {
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map(normalizeRecipeLine)
+    .filter(Boolean);
+  const output = [];
+  let active = false;
+  for (const line of lines) {
+    if (/(你需要準備|需要準備|材料|食材|調味料|ingredients?)/i.test(line)) {
+      active = true;
+      continue;
+    }
+    if (active && /(做法|作法|步驟|小撇步|instructions?|directions?|method|相關文章|留言)/i.test(line)) break;
+    if (active && !isNoiseLine(line)) output.push(line);
+    if (output.length >= 80) break;
+  }
+  return output;
+}
+
+function extractStructuredIngredients(html) {
+  const scoped = stripNonContentHtml(html);
+  const output = [];
+  output.push(...extractIngredientSectionPairs(scoped));
+  output.push(...extractListBlockIngredients(scoped));
+
+  const tableRegex = /<table\b[^>]*>([\s\S]*?)<\/table>/gi;
+  let tableMatch;
+  while ((tableMatch = tableRegex.exec(scoped))) {
+    const rowRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rowMatch;
+    while ((rowMatch = rowRegex.exec(tableMatch[1]))) {
+      const cells = [];
+      const cellRegex = /<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      let cellMatch;
+      while ((cellMatch = cellRegex.exec(rowMatch[1]))) {
+        const cell = normalizeRecipeLine(cellMatch[1]);
+        if (cell && !/^(材料|食材|調味料)$/i.test(cell)) cells.push(cell);
+      }
+      output.push(...extractIngredientPairsFromCells(cells));
+    }
+  }
+
+  const dtddRegex = /<dt\b[^>]*>([\s\S]*?)<\/dt>\s*<dd\b[^>]*>([\s\S]*?)<\/dd>/gi;
+  let dtddMatch;
+  while ((dtddMatch = dtddRegex.exec(scoped))) {
+    const heading = normalizeRecipeLine(dtddMatch[1]);
+    if (/^(材料|食材|調味料|調味|配料|你需要準備)/i.test(heading)) continue;
+    const pair = ingredientPair(dtddMatch[1], dtddMatch[2]);
+    if (pair) output.push(pair);
+  }
+
+  const structured = dedupe(output.map(normalizeRecipeLine).filter(isLikelyIngredientLine)).slice(0, 32);
+  if (structured.length >= 2) return structured;
+
+  const sectionLines = ingredientSectionLines(textWithBreaks(scoped));
+  for (let index = 0; index < sectionLines.length; index += 1) {
+    const current = sectionLines[index];
+    const next = sectionLines[index + 1];
+    const pair = ingredientPair(current, next);
+    if (pair) {
+      output.push(pair);
+      index += 1;
+    } else if (isLikelyIngredientLine(current)) {
+      output.push(current);
+    }
+  }
+
+  return dedupe(output.map(normalizeRecipeLine).filter(isLikelyIngredientLine)).slice(0, 32);
+}
+
+function listItemsFromSection(html, keywords) {
+  const chunks = [];
+  const keywordPattern = keywords.map(escapeRegex).join("|");
+  const sectionRegex = new RegExp(
+    `<(?:section|div|article|main|ul|ol)[^>]*(?:id|class)=["'][^"']*(?:${keywordPattern})[^"']*["'][^>]*>([\\s\\S]{0,16000}?)<\\/(?:section|div|article|main|ul|ol)>`,
+    "gi",
+  );
+  let sectionMatch;
+  while ((sectionMatch = sectionRegex.exec(html))) chunks.push(sectionMatch[1]);
+
+  const headingRegex = new RegExp(
+    `<h[2-5][^>]*>\\s*(?:${keywordPattern})[\\s\\S]*?<\\/h[2-5]>([\\s\\S]{0,12000}?)(?=<h[2-5]|<footer|<aside|$)`,
+    "gi",
+  );
+  let headingMatch;
+  while ((headingMatch = headingRegex.exec(html))) chunks.push(headingMatch[1]);
+
+  const items = [];
+  for (const chunk of chunks) {
+    const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+    let liMatch;
+    while ((liMatch = liRegex.exec(chunk))) {
+      const text = normalizeRecipeLine(liMatch[1]);
+      if (text.length >= 2 && text.length <= 180 && !isNoiseLine(text)) items.push(text);
+    }
+    textWithBreaks(chunk).split(/\n+/).forEach((line) => {
+      const text = normalizeRecipeLine(line);
+      if (text.length >= 2 && text.length <= 180 && !isNoiseLine(text)) items.push(text);
+    });
+  }
+  return dedupe(items).slice(0, 32);
+}
+
+function inferIngredientLines(text) {
+  return dedupe(
+    String(text || "")
+      .split(/\n+|[;；]/)
+      .map(normalizeRecipeLine)
+      .filter(isLikelyIngredientLine),
+  ).slice(0, 24);
+}
+
+function isLikelyStepLine(line = "") {
+  const text = normalizeRecipeLine(line);
+  if (isNoiseLine(text)) return false;
+  if (text.length < 3 || text.length > 180) return false;
+  if (!hasCookingVerb(text)) return false;
+  if (/^(材料|食材|調味料)/.test(text)) return false;
+  return /[\p{Script=Han}A-Za-z]/u.test(text);
+}
+
+function extractRecipeStepBlocks(html) {
+  const steps = [];
+  const sectionRegex = /<(?:section|div)\b[^>]*class=["'][^"']*(?:l-single-recipe|recipe-step|recipeSteps|instruction|method|direction)[^"']*["'][^>]*>([\s\S]*?)<\/(?:section|div)>/gi;
+  let sectionMatch;
+  while ((sectionMatch = sectionRegex.exec(html))) {
+    const block = sectionMatch[1];
+    const dlRegex = /<dl\b[^>]*>([\s\S]*?)<\/dl>/gi;
+    let dlMatch;
+    while ((dlMatch = dlRegex.exec(block))) {
+      const paragraphRegex = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
+      let paragraphMatch;
+      while ((paragraphMatch = paragraphRegex.exec(dlMatch[1]))) {
+        const step = normalizeRecipeLine(paragraphMatch[1]);
+        if (isLikelyStepLine(step)) steps.push(step);
+      }
+    }
+    if (!steps.length) {
+      textWithBreaks(block)
+        .split(/\n+/)
+        .map(normalizeRecipeLine)
+        .filter(isLikelyStepLine)
+        .forEach((step) => steps.push(step));
+    }
+  }
+  return dedupe(steps).slice(0, 24);
+}
+
+function extractNumberedSteps(text) {
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map(normalizeRecipeLine)
+    .filter(Boolean);
+  const steps = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const startsWithNumber = /^\d{1,2}[.)、．\s]+/.test(line);
+    const numberOnly = /^\d{1,2}$/.test(line);
+    const imageNumber = /\s\d{1,2}$/.test(line) && /^image/i.test(line);
+    if (startsWithNumber && isLikelyStepLine(line)) {
+      steps.push(line);
+      continue;
+    }
+    if (numberOnly || imageNumber) {
+      for (let nextIndex = index + 1; nextIndex < Math.min(index + 4, lines.length); nextIndex += 1) {
+        if (isLikelyStepLine(lines[nextIndex])) {
+          steps.push(lines[nextIndex]);
+          index = nextIndex;
+          break;
+        }
+      }
+    }
+  }
+  return dedupe(steps).slice(0, 24);
+}
+
+function inferSteps(html, text) {
+  const blockSteps = extractRecipeStepBlocks(html);
+  if (blockSteps.length >= 2) return blockSteps;
+
+  const sectionSteps = listItemsFromSection(html, ["instruction", "method", "direction", "step", "做法", "步驟", "作法"])
+    .map(normalizeRecipeLine)
+    .filter(isLikelyStepLine);
+  if (sectionSteps.length >= 2) return dedupe(sectionSteps).slice(0, 24);
+
+  const numbered = extractNumberedSteps(text);
+  if (numbered.length >= 2) return numbered;
+
+  const orderedItems = [];
+  const olRegex = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
+  let olMatch;
+  while ((olMatch = olRegex.exec(html))) {
+    const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+    let liMatch;
+    while ((liMatch = liRegex.exec(olMatch[1]))) {
+      const item = normalizeRecipeLine(liMatch[1]);
+      if (isLikelyStepLine(item)) orderedItems.push(item);
+    }
+  }
+  if (orderedItems.length >= 2) return dedupe(orderedItems).slice(0, 24);
+
+  return dedupe(
+    String(text || "")
+      .split(/\n+|[;；]/)
+      .map(normalizeRecipeLine)
+      .filter(isLikelyStepLine),
+  ).slice(0, 12);
+}
+
 function mapJsonLdRecipe(recipe, url, html) {
   const instructions = Array.isArray(recipe.recipeInstructions)
     ? recipe.recipeInstructions.map(normalizeInstruction).filter(Boolean)
@@ -800,12 +1195,16 @@ function extractRecipeFromHtml(html, url) {
     return mapped;
   }
 
-  const plainText = cleanText(html.replace(/<\/(p|li|h[1-6]|div|section|article|br)>/gi, "\n"));
+  const scopedHtml = getRecipeScopedHtml(html);
+  const plainText = textWithBreaks(scopedHtml);
+  const structuredIngredients = extractStructuredIngredients(scopedHtml);
   const ingredients =
-    listItemsFromSection(html, ["ingredient", "recipeIngredient", "材料", "食材", "配料"]) ||
+    structuredIngredients.length ? structuredIngredients :
+    listItemsFromSection(scopedHtml, ["ingredient", "recipeIngredient", "材料", "食材", "配料"])
+      .filter(isLikelyIngredientLine) ||
     [];
   const fallbackIngredients = ingredients.length ? ingredients : inferIngredientLines(plainText);
-  const steps = inferSteps(html, plainText);
+  const steps = inferSteps(scopedHtml, plainText);
   const title = titleFromHtml(html) || getMeta(html, "og:title") || new URL(url).hostname;
   const description = getMeta(html, "description") || getMeta(html, "og:description") || "";
   const image = getMeta(html, "og:image");
@@ -816,7 +1215,7 @@ function extractRecipeFromHtml(html, url) {
     canonicalUrl: getMeta(html, "og:url") || url,
     description: stripTags(description),
     image: image ? absolutizeUrl(image, url) : "",
-    ingredients: fallbackIngredients,
+    ingredients: dedupe(fallbackIngredients.map(normalizeRecipeLine).filter(isLikelyIngredientLine)).slice(0, 32),
     steps,
     servings: "",
     time: inferTimeFromText(`${title} ${description} ${plainText.slice(0, 2500)}`),
