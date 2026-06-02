@@ -10,9 +10,8 @@ https://example.com/your-recipe-page
 
 ## 我的來源
 
-https://icook.tw/
-https://cookpad.com/tw
-https://www.wecook123.com/
-https://www.ytower.com.tw/recipe/?srsltid=AfmBOop_r1kf4df9UPYfkFCnAmbHk4ahFMdLEWaN9bwzQXKRECs1OOKN
-https://tasty-note.com/
-https://tasty-note.com/beef-shigureni/
+https://tasty-note.com/classic-beef-curry/
+https://tasty-note.com/kansai-style-sukiyaki/
+https://tasty-note.com/rice-cooker-scallion-pork-soup/
+https://tasty-note.com/garlic-soy-marinated-pork/
+https://tasty-note.com/chicken-thigh-mizore-ni/
