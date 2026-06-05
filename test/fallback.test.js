@@ -18,16 +18,18 @@ test("Gemini provider sends general questions directly through Gemini intent", a
     {
       toolName: "none",
       args: {},
-      reply: "這是一段 Gemini 一般回答。"
-    }
+      reply: ""
+    },
+    "推薦你最近可以看《Moving 異能》、《黑暗榮耀》和《淚之女王》。"
   ]);
 
   try {
-    const reply = await answerWithGemini({ text: "幫我寫一段開幕文案" });
+    const reply = await answerWithGemini({ text: "最近推薦影集" });
 
-    assert.equal(reply, "這是一段 Gemini 一般回答。");
-    assert.equal(calls.length, 1);
-    assert.match(calls[0].contents[0].parts[0].text, /開幕文案/);
+    assert.match(reply, /Moving|黑暗榮耀|淚之女王/);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].contents[0].parts[0].text, /最近推薦影集/);
+    assert.match(calls[1].contents[0].parts[0].text, /Actually answer/);
   } finally {
     calls.restore();
   }

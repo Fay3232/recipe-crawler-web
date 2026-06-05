@@ -34,7 +34,7 @@ const intentSchema = {
     },
     reply: {
       type: "string",
-      description: "Traditional Chinese direct reply when toolName is none; otherwise an empty string."
+      description: "Always return an empty string. The app will call Gemini again for final replies."
     }
   },
   required: ["toolName", "args", "reply"],
@@ -46,8 +46,8 @@ export async function answerWithGemini({ text, location }) {
   const intent = await detectIntent(userPrompt);
 
   if (intent.toolName === "none") {
-    return intent.reply || generateText({
-      prompt: userPrompt,
+    return generateText({
+      prompt: buildDirectAnswerPrompt(userPrompt),
       system: systemInstruction
     });
   }
@@ -70,7 +70,7 @@ Rules:
 - Current weather/rain/temperature/typhoon: toolName=get_weather, args.city should be a Taiwan city/county.
 - Food/restaurants/cafes/ramen/what to eat/market food: toolName=search_food, args.query should keep the full search term, for example "西湖市場美食".
 - Stocks/stock price/Taiwan stocks/US stocks/2330/AAPL-like symbols: toolName=get_stock_quote. Use market=TW for numeric Taiwan symbols, market=US for US tickers.
-- General chat, writing, translation, planning, summarization, or "what can you do": toolName=none and reply in Traditional Chinese.
+- General chat, entertainment recommendations, writing, translation, planning, summarization, or "what can you do": toolName=none. Do not answer here; set reply to an empty string.
 
 User message:
 ${userPrompt}
@@ -171,6 +171,21 @@ function buildUserPrompt({ text, location }) {
     parts.push(`LINE 位置：${JSON.stringify(location)}`);
   }
   return parts.filter(Boolean).join("\n");
+}
+
+function buildDirectAnswerPrompt(userPrompt) {
+  return `
+Answer this LINE user message directly in Traditional Chinese.
+
+Requirements:
+- Actually answer the request; do not only introduce your capabilities.
+- Keep it concise and useful for mobile chat.
+- If the user asks for recommendations, give concrete options.
+- If the user asks about current weather, restaurants, or stock prices, say you need the realtime tool instead of inventing data.
+
+User message:
+${userPrompt}
+`.trim();
 }
 
 function sanitizeToolArgs(intent) {
