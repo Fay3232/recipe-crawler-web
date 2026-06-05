@@ -43,6 +43,13 @@ const intentSchema = {
 
 export async function answerWithGemini({ text, location }) {
   const userPrompt = buildUserPrompt({ text, location });
+  if (!mayNeedRealtimeTool(text, location)) {
+    return generateText({
+      prompt: buildDirectAnswerPrompt(userPrompt),
+      system: systemInstruction
+    });
+  }
+
   const intent = await detectIntent(userPrompt);
 
   if (intent.toolName === "none") {
@@ -52,7 +59,7 @@ export async function answerWithGemini({ text, location }) {
     });
   }
 
-  const toolArgs = sanitizeToolArgs(intent);
+  const toolArgs = sanitizeToolArgs(intent, text);
   const toolResult = await runTool(intent.toolName, toolArgs, { location });
   return summarizeToolResult({
     userPrompt,
@@ -68,6 +75,7 @@ Classify this LINE message and return JSON only.
 
 Rules:
 - Current weather/rain/temperature/typhoon: toolName=get_weather, args.city should be a Taiwan city/county.
+- If the user asks about 淡水 weather, set args.city to 淡水區, not 臺北市.
 - Food/restaurants/cafes/ramen/what to eat/market food: toolName=search_food, args.query should keep the full search term, for example "西湖市場美食".
 - Stocks/stock price/Taiwan stocks/US stocks/2330/AAPL-like symbols: toolName=get_stock_quote. Use market=TW for numeric Taiwan symbols, market=US for US tickers.
 - General chat, entertainment recommendations, writing, translation, planning, summarization, or "what can you do": toolName=none. Do not answer here; set reply to an empty string.
@@ -188,10 +196,16 @@ ${userPrompt}
 `.trim();
 }
 
-function sanitizeToolArgs(intent) {
+function mayNeedRealtimeTool(text, location) {
+  const message = String(text || "");
+  if (location) return true;
+  return /天氣|下雨|降雨|氣溫|溫度|颱風|天候|美食|餐廳|吃什麼|小吃|市場|咖啡|拉麵|牛肉麵|火鍋|早餐|午餐|晚餐|宵夜|股票|股價|台股|美股|報價|\b[0-9]{4,6}\b|\b[A-Z]{1,5}\b/i.test(message);
+}
+
+function sanitizeToolArgs(intent, userText = "") {
   const args = intent.args || {};
   if (intent.toolName === "get_weather") {
-    return { city: String(args.city || "").trim() || "臺北市" };
+    return { city: extractWeatherLocationFromText(userText) || String(args.city || "").trim() || "臺北市" };
   }
   if (intent.toolName === "search_food") {
     return {
@@ -232,4 +246,29 @@ function parseJson(text) {
 
 function numberOrUndefined(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function extractWeatherLocationFromText(text) {
+  const message = String(text || "");
+  const overrides = [
+    [/淡水區|淡水/, "淡水區"],
+    [/八里區|八里/, "八里區"],
+    [/三芝區|三芝/, "三芝區"],
+    [/石門區|石門/, "石門區"],
+    [/金山區|金山/, "金山區"],
+    [/萬里區|萬里/, "萬里區"],
+    [/北投區|北投/, "北投區"],
+    [/士林區|士林/, "士林區"],
+    [/內湖區|內湖/, "內湖區"],
+    [/信義區|信義/, "信義區"],
+    [/板橋區|板橋/, "板橋區"],
+    [/新莊區|新莊/, "新莊區"],
+    [/中和區|中和/, "中和區"],
+    [/永和區|永和/, "永和區"],
+    [/三重區|三重/, "三重區"],
+    [/蘆洲區|蘆洲/, "蘆洲區"],
+    [/汐止區|汐止/, "汐止區"],
+    [/新店區|新店/, "新店區"]
+  ];
+  return overrides.find(([pattern]) => pattern.test(message))?.[1] || "";
 }

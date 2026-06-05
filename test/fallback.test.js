@@ -13,13 +13,8 @@ test("missing Gemini key reply does not mention OpenAI", async () => {
   assert.doesNotMatch(reply, /OPENAI_API_KEY/);
 });
 
-test("Gemini provider sends general questions directly through Gemini intent", async () => {
+test("Gemini provider sends general questions directly to Gemini answer mode", async () => {
   const calls = mockGemini([
-    {
-      toolName: "none",
-      args: {},
-      reply: ""
-    },
     "推薦你最近可以看《Moving 異能》、《黑暗榮耀》和《淚之女王》。"
   ]);
 
@@ -27,9 +22,9 @@ test("Gemini provider sends general questions directly through Gemini intent", a
     const reply = await answerWithGemini({ text: "最近推薦影集" });
 
     assert.match(reply, /Moving|黑暗榮耀|淚之女王/);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 1);
     assert.match(calls[0].contents[0].parts[0].text, /最近推薦影集/);
-    assert.match(calls[1].contents[0].parts[0].text, /Actually answer/);
+    assert.match(calls[0].contents[0].parts[0].text, /Actually answer/);
   } finally {
     calls.restore();
   }
@@ -50,6 +45,27 @@ test("Gemini provider lets Gemini route weather before tool lookup", async () =>
 
     assert.match(reply, /CWA_API_KEY/);
     assert.equal(calls.length, 2);
+  } finally {
+    calls.restore();
+  }
+});
+
+test("Gemini provider corrects Tamsui weather location before tool lookup", async () => {
+  const calls = mockGemini([
+    {
+      toolName: "get_weather",
+      args: { city: "臺北市" },
+      reply: ""
+    },
+    "淡水區天氣資料查詢中。"
+  ]);
+
+  try {
+    const reply = await answerWithGemini({ text: "明天淡水的天氣" });
+
+    assert.match(reply, /淡水/);
+    assert.equal(calls.length, 2);
+    assert.match(calls[1].contents[0].parts[0].text, /淡水區/);
   } finally {
     calls.restore();
   }
