@@ -1,21 +1,16 @@
 {
-  "name": "recipe-crawler-web",
-  "version": "1.0.0",
+  "name": "line-ai-assistant",
+  "version": "0.1.0",
   "private": true,
-  "description": "Production-ready local recipe crawler and recipe finder web app.",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "check": "node --check server.js && node --check public/app.js"
-  },
+  "type": "module",
+  "description": "LINE Messaging API webhook with OpenAI tool calling for food, stocks, and weather.",
   "engines": {
     "node": ">=20"
   },
-  "keywords": [
-    "recipe",
-    "crawler",
-    "taiwan",
-    "food"
-  ],
-  "license": "UNLICENSED"
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --env-file=.env src/server.js",
+    "check": "node --check src/config.js && node --check src/fallback.js && node --check src/line.js && node --check src/tools.js && node --check src/providers/openai.js && node --check src/providers/gemini.js && node --check src/ai.js && node --check src/openai.js && node --check src/server.js",
+    "test": "node --test"
+  }
 }
